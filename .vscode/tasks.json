@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PocketBase: start local server",
+      "type": "shell",
+      "command": "${workspaceFolder}/pocketbase",
+      "args": [
+        "serve"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "pocketbase",
+        "pattern": {
+          "regexp": "^(.*)$",
+          "message": 1
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Server started at.*",
+          "endsPattern": ".*http://127\\.0\\.0\\.1:8090.*"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "clear": false
+      }
+    },
+    {
+      "label": "Android: forward PocketBase dev server",
+      "type": "shell",
+      "command": "adb",
+      "args": [
+        "reverse",
+        "tcp:8090",
+        "tcp:8090"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": false
+      }
+    }
+  ]
+}

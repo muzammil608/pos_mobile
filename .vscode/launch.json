@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "POS Mobile Debug",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "preLaunchTask": "Android: forward PocketBase dev server"
+    },
+    {
+      "name": "POS Web/Desktop Debug",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "debug",
+      "preLaunchTask": "PocketBase: start local server"
+    }
+  ]
+}
