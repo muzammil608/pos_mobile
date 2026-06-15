@@ -153,6 +153,14 @@ class AppNavigationDrawer extends StatelessWidget {
           currentRoute: currentRoute,
           compact: compact,
         ),
+      if (auth.isAdmin || auth.isCashier)
+        _DrawerItem(
+          icon: Icons.build_circle_rounded,
+          title: 'Repair Desk',
+          route: '/repairs',
+          currentRoute: currentRoute,
+          compact: compact,
+        ),
       if (auth.isAdmin)
         _DrawerItem(
           icon: Icons.dashboard_customize_rounded,
@@ -1011,6 +1019,10 @@ class AppMobileBottomNavBar extends StatelessWidget {
               icon: Icon(Icons.warehouse_rounded),
               label: 'Inventory',
             ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.build_circle_rounded),
+              label: 'Repairs',
+            ),
           ],
           onTap: (index) {
             if (index == currentIndex) {
@@ -1033,6 +1045,9 @@ class AppMobileBottomNavBar extends StatelessWidget {
                 break;
               case 3:
                 Navigator.pushReplacementNamed(context, '/inventory');
+                break;
+              case 4:
+                Navigator.pushReplacementNamed(context, '/repairs');
                 break;
             }
           },

@@ -53,6 +53,9 @@ class ProductProvider extends ChangeNotifier {
     required String name,
     required double price,
     double purchasePrice = 0,
+    double minSalePrice = 0,
+    bool allowBargain = false,
+    double maxDiscountPercent = 0,
     required String category,
     required String modelCode,
     required String brand,
@@ -69,6 +72,9 @@ class ProductProvider extends ChangeNotifier {
         name: name,
         price: price,
         purchasePrice: purchasePrice,
+        minSalePrice: minSalePrice,
+        allowBargain: allowBargain,
+        maxDiscountPercent: maxDiscountPercent,
         category: category,
         modelCode: modelCode,
         brand: brand,
@@ -90,6 +96,9 @@ class ProductProvider extends ChangeNotifier {
     required String name,
     required double price,
     double? purchasePrice,
+    double? minSalePrice,
+    bool? allowBargain,
+    double? maxDiscountPercent,
     required String category,
     required String modelCode,
     required String brand,
@@ -107,6 +116,9 @@ class ProductProvider extends ChangeNotifier {
         name: name,
         price: price,
         purchasePrice: purchasePrice,
+        minSalePrice: minSalePrice,
+        allowBargain: allowBargain,
+        maxDiscountPercent: maxDiscountPercent,
         category: category,
         modelCode: modelCode,
         brand: brand,
@@ -128,6 +140,31 @@ class ProductProvider extends ChangeNotifier {
     try {
       final result = await _service.deleteProduct(id);
       return result;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<String?> updateBargainPolicies({
+    required List<Product> products,
+    required bool allowBargain,
+    required double minSalePrice,
+    required double maxDiscountPercent,
+  }) async {
+    _setLoading(true);
+    try {
+      for (final product in products) {
+        final error = await _service.updateBargainPolicy(
+          id: product.id,
+          allowBargain: allowBargain,
+          minSalePrice: minSalePrice,
+          maxDiscountPercent: maxDiscountPercent,
+        );
+        if (error != null) {
+          return '${product.name}: $error';
+        }
+      }
+      return null;
     } finally {
       _setLoading(false);
     }

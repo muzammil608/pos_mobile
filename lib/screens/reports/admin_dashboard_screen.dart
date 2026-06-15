@@ -249,6 +249,25 @@ class _DashboardContent extends StatelessWidget {
                         isLoading: ordersLoading,
                         fullWidth: !isDesktop,
                       ),
+                      StreamBuilder<double>(
+                        stream: reportService.getTodayRepairProfit(),
+                        builder: (context, profitSnapshot) {
+                          final profit = profitSnapshot.data ?? 0;
+                          final loading = !profitSnapshot.hasData;
+                          return _StatCard(
+                            icon: Icons.build_circle_outlined,
+                            iconColor: NovaColors.amber,
+                            label: "Today's Repair Profit",
+                            value: loading
+                                ? '—'
+                                : 'Rs ${profit.toStringAsFixed(0)}',
+                            delta: 'Completed repairs',
+                            deltaUp: profit >= 0,
+                            isLoading: loading,
+                            fullWidth: !isDesktop,
+                          );
+                        },
+                      ),
                       _StatCard(
                         icon: Icons.star_rounded,
                         iconColor: NovaColors.rose,

@@ -107,6 +107,16 @@ class _ProductsScreenState extends State<ProductsScreen> {
           ? product.purchasePrice.toStringAsFixed(0)
           : '',
     );
+    final minSalePriceController = TextEditingController(
+      text: product != null && product.minSalePrice > 0
+          ? product.minSalePrice.toStringAsFixed(0)
+          : '',
+    );
+    final maxDiscountController = TextEditingController(
+      text: product != null && product.maxDiscountPercent > 0
+          ? product.maxDiscountPercent.toStringAsFixed(0)
+          : '',
+    );
     final stockController = TextEditingController(
       text: (product?.stockQty ?? 0).toString(),
     );
@@ -121,6 +131,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     String selectedBrand = product?.brand ?? 'Infinix';
     String selectedQualityTier = product?.qualityTier ?? 'Normal Copy';
     String selectedCategory = product?.category ?? 'panels';
+    bool allowBargain = product?.allowBargain ?? false;
     Uint8List? selectedImageBytes;
     String? selectedImageFilename;
     bool isPickingImage = false;
@@ -640,6 +651,89 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                         ],
                                       ),
                                       const SizedBox(height: 12),
+                                      Material(
+                                        color: Colors.transparent,
+                                        child: SwitchListTile.adaptive(
+                                          contentPadding: EdgeInsets.zero,
+                                          value: allowBargain,
+                                          activeColor: NovaColors.violet,
+                                          title: const Text(
+                                            'Allow bargaining',
+                                            style: TextStyle(
+                                              color: NovaColors.textPrimary,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          subtitle: const Text(
+                                            'Cashiers can enter a negotiated sale price.',
+                                          ),
+                                          onChanged: (value) => setSheetState(
+                                            () => allowBargain = value,
+                                          ),
+                                        ),
+                                      ),
+                                      if (allowBargain) ...[
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: _StyledField(
+                                                controller:
+                                                    minSalePriceController,
+                                                label: 'Minimum Sale Price',
+                                                icon: Icons.price_check_rounded,
+                                                prefixText: 'Rs ',
+                                                keyboardType:
+                                                    const TextInputType
+                                                        .numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                                validator: (v) {
+                                                  final value = double.tryParse(
+                                                    v?.trim() ?? '',
+                                                  );
+                                                  if ((v?.trim().isNotEmpty ??
+                                                          false) &&
+                                                      value == null) {
+                                                    return 'Invalid';
+                                                  }
+                                                  return null;
+                                                },
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: _StyledField(
+                                                controller:
+                                                    maxDiscountController,
+                                                label: 'Max Discount',
+                                                icon: Icons.percent_rounded,
+                                                suffixText: '%',
+                                                keyboardType:
+                                                    const TextInputType
+                                                        .numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                                validator: (v) {
+                                                  if (v == null ||
+                                                      v.trim().isEmpty) {
+                                                    return null;
+                                                  }
+                                                  final value =
+                                                      double.tryParse(v.trim());
+                                                  if (value == null ||
+                                                      value < 0 ||
+                                                      value > 100) {
+                                                    return 'Use 0 to 100';
+                                                  }
+                                                  return null;
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                      const SizedBox(height: 12),
                                       Builder(builder: (context) {
                                         final categoryItems = [
                                           "panels",
@@ -772,6 +866,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                           .trim(),
                                                     ) ??
                                                     0;
+                                            final minSalePrice =
+                                                double.tryParse(
+                                                      minSalePriceController
+                                                          .text
+                                                          .trim(),
+                                                    ) ??
+                                                    0;
+                                            final maxDiscountPercent =
+                                                double.tryParse(
+                                                      maxDiscountController.text
+                                                          .trim(),
+                                                    ) ??
+                                                    0;
                                             final stockQty = int.tryParse(
                                                     stockController.text
                                                         .trim()) ??
@@ -796,6 +903,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                 name: name,
                                                 price: price,
                                                 purchasePrice: purchasePrice,
+                                                minSalePrice: minSalePrice,
+                                                allowBargain: allowBargain,
+                                                maxDiscountPercent:
+                                                    maxDiscountPercent,
                                                 category: selectedCategory,
                                                 modelCode: modelCode,
                                                 brand: selectedBrand,
@@ -815,6 +926,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                 name: name,
                                                 price: price,
                                                 purchasePrice: purchasePrice,
+                                                minSalePrice: minSalePrice,
+                                                allowBargain: allowBargain,
+                                                maxDiscountPercent:
+                                                    maxDiscountPercent,
                                                 category: selectedCategory,
                                                 modelCode: modelCode,
                                                 brand: selectedBrand,
@@ -831,15 +946,21 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             }
 
                                             if (!sheetContext.mounted) return;
+                                            if (error != null) {
+                                              _showProductSnackBar(
+                                                context: sheetContext,
+                                                message: error,
+                                                isError: true,
+                                              );
+                                              return;
+                                            }
                                             Navigator.pop(sheetContext);
-
                                             _showProductSnackBar(
                                               context: context,
-                                              message: error ??
-                                                  (isEdit
-                                                      ? 'Product updated'
-                                                      : 'Product added'),
-                                              isError: error != null,
+                                              message: isEdit
+                                                  ? 'Product updated'
+                                                  : 'Product added',
+                                              isError: false,
                                             );
                                           },
                                     icon: provider.isLoading
@@ -891,6 +1012,27 @@ class _ProductsScreenState extends State<ProductsScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<void> _showBulkBargainDialog(
+    BuildContext context,
+    List<Product> products,
+  ) async {
+    if (products.isEmpty) return;
+
+    final updatedCount = await showDialog<int>(
+      context: context,
+      builder: (_) => _BulkBargainDialog(
+        products: products,
+        provider: context.read<ProductProvider>(),
+      ),
+    );
+    if (!context.mounted || updatedCount == null) return;
+    _showProductSnackBar(
+      context: context,
+      message: 'Bargaining updated for $updatedCount products',
+      isError: false,
     );
   }
 
@@ -1260,6 +1402,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           CafeColors.charcoal.withOpacity(0.5),
                                     ),
                                   ),
+                                  const Spacer(),
+                                  TextButton.icon(
+                                    onPressed: filtered.isEmpty
+                                        ? null
+                                        : () => _showBulkBargainDialog(
+                                              context,
+                                              filtered,
+                                            ),
+                                    icon: const Icon(
+                                      Icons.handshake_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Bulk Bargaining'),
+                                  ),
                                 ],
                               ),
                             ),
@@ -1447,6 +1603,7 @@ class _StyledField extends StatelessWidget {
   final IconData icon;
   final String? hint;
   final String? prefixText;
+  final String? suffixText;
   final bool autofocus;
   final TextCapitalization textCapitalization;
   final TextInputType? keyboardType;
@@ -1461,6 +1618,7 @@ class _StyledField extends StatelessWidget {
     // ignore: unused_element_parameter
     this.hint,
     this.prefixText,
+    this.suffixText,
     // ignore: unused_element_parameter
     this.autofocus = false,
     this.textCapitalization = TextCapitalization.none,
@@ -1486,6 +1644,7 @@ class _StyledField extends StatelessWidget {
         labelText: label,
         hintText: hint,
         prefixText: prefixText,
+        suffixText: suffixText,
         labelStyle: TextStyle(
             color: CafeColors.charcoal.withOpacity(0.55), fontSize: 13),
         prefixIcon: Icon(icon, color: CafeColors.flame, size: 20),
@@ -1509,6 +1668,226 @@ class _StyledField extends StatelessWidget {
             const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         filled: true,
         fillColor: CafeColors.steam,
+      ),
+    );
+  }
+}
+
+class _BulkBargainDialog extends StatefulWidget {
+  const _BulkBargainDialog({
+    required this.products,
+    required this.provider,
+  });
+
+  final List<Product> products;
+  final ProductProvider provider;
+
+  @override
+  State<_BulkBargainDialog> createState() => _BulkBargainDialogState();
+}
+
+class _BulkBargainDialogState extends State<_BulkBargainDialog> {
+  final Set<String> _selectedIds = {};
+  final TextEditingController _minPriceController = TextEditingController();
+  final TextEditingController _maxDiscountController = TextEditingController();
+  bool _allowBargain = true;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _minPriceController.dispose();
+    _maxDiscountController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_selectedIds.isEmpty || _saving) return;
+    final minSalePrice = double.tryParse(_minPriceController.text.trim()) ?? 0;
+    final maxDiscountPercent =
+        double.tryParse(_maxDiscountController.text.trim()) ?? 0;
+    if (minSalePrice < 0 ||
+        maxDiscountPercent < 0 ||
+        maxDiscountPercent > 100) {
+      setState(() {
+        _error = 'Use a valid minimum price and discount from 0 to 100.';
+      });
+      return;
+    }
+
+    final selectedProducts = widget.products
+        .where((product) => _selectedIds.contains(product.id))
+        .toList();
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final error = await widget.provider.updateBargainPolicies(
+      products: selectedProducts,
+      allowBargain: _allowBargain,
+      minSalePrice: _allowBargain ? minSalePrice : 0,
+      maxDiscountPercent: _allowBargain ? maxDiscountPercent : 0,
+    );
+    if (!mounted) return;
+    if (error != null) {
+      setState(() {
+        _saving = false;
+        _error = error;
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(selectedProducts.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allSelected = _selectedIds.length == widget.products.length;
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
+        title: const Text('Bulk Bargaining'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Material(
+                  color: Colors.transparent,
+                  child: CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: allSelected,
+                    tristate: _selectedIds.isNotEmpty && !allSelected,
+                    title: Text(
+                      'Select all ${widget.products.length} products',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    onChanged: _saving
+                        ? null
+                        : (_) => setState(() {
+                              if (allSelected) {
+                                _selectedIds.clear();
+                              } else {
+                                _selectedIds
+                                  ..clear()
+                                  ..addAll(
+                                    widget.products
+                                        .map((product) => product.id),
+                                  );
+                              }
+                            }),
+                  ),
+                ),
+                const Divider(),
+                SizedBox(
+                  height: 260,
+                  child: ListView.builder(
+                    itemCount: widget.products.length,
+                    itemBuilder: (_, index) {
+                      final product = widget.products[index];
+                      return Material(
+                        color: Colors.transparent,
+                        child: CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          value: _selectedIds.contains(product.id),
+                          title: Text(product.name),
+                          subtitle: Text(
+                            'Sale Rs ${product.salePrice.toStringAsFixed(0)}',
+                          ),
+                          onChanged: _saving
+                              ? null
+                              : (selected) => setState(() {
+                                    if (selected == true) {
+                                      _selectedIds.add(product.id);
+                                    } else {
+                                      _selectedIds.remove(product.id);
+                                    }
+                                  }),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(),
+                Material(
+                  color: Colors.transparent,
+                  child: SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: _allowBargain,
+                    title: const Text('Enable bargaining'),
+                    onChanged: _saving
+                        ? null
+                        : (value) => setState(() => _allowBargain = value),
+                  ),
+                ),
+                if (_allowBargain)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _minPriceController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Minimum sale price',
+                            prefixText: 'Rs ',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _maxDiscountController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Max discount',
+                            suffixText: '%',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(
+                        color: NovaColors.danger,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: _selectedIds.isEmpty || _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.done_all_rounded),
+            label: Text(
+              _saving ? 'Saving...' : 'Apply to ${_selectedIds.length}',
+            ),
+          ),
+        ],
       ),
     );
   }

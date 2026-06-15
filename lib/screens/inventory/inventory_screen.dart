@@ -1028,7 +1028,30 @@ class _InventoryOrdersReportScreenState
     final customerName = (order['customerName']?.toString() ?? '').trim();
     final items = List<Map<String, dynamic>>.from(
       (order['items'] as List? ?? const []).map(
-        (item) => Map<String, dynamic>.from(item as Map),
+        (item) {
+          final data = Map<String, dynamic>.from(item as Map);
+          final quantity = (data['qty'] as num?)?.toInt() ??
+              (data['quantity'] as num?)?.toInt() ??
+              1;
+          final unitPrice = ((data['unitPrice'] ??
+                      data['price'] ??
+                      data['retail_rate']) as num?)
+                  ?.toDouble() ??
+              0.0;
+          return <String, dynamic>{
+            ...data,
+            'name': data['name'] ??
+                data['productName'] ??
+                data['item_name'] ??
+                'Item',
+            'qty': quantity,
+            'quantity': quantity,
+            'price': unitPrice,
+            'unitPrice': unitPrice,
+            'lineTotal':
+                (data['lineTotal'] as num?)?.toDouble() ?? quantity * unitPrice,
+          };
+        },
       ),
     );
 
@@ -1767,7 +1790,32 @@ class _InventoryOrderReportCard extends StatelessWidget {
     final createdAt = order['createdAtDate'] as DateTime? ?? DateTime.now();
     final orderNumber = (order['orderNumber'] as num?)?.toInt() ?? 0;
     final total = (order['total'] as num?)?.toDouble() ?? 0.0;
-    final items = (order['items'] as List? ?? const []).length;
+    final orderItems = (order['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    final itemCount = orderItems.fold<int>(
+      0,
+      (sum, item) =>
+          sum +
+          ((item['qty'] as num?)?.toInt() ??
+              (item['quantity'] as num?)?.toInt() ??
+              1),
+    );
+    final productSummary = orderItems
+        .map((item) {
+          final name =
+              (item['name'] ?? item['productName'] ?? item['item_name'])
+                      ?.toString()
+                      .trim() ??
+                  '';
+          final quantity = (item['qty'] as num?)?.toInt() ??
+              (item['quantity'] as num?)?.toInt() ??
+              1;
+          return name.isEmpty ? '' : '$name ×$quantity';
+        })
+        .where((label) => label.isNotEmpty)
+        .join(', ');
     final status = order['status']?.toString() ?? 'unknown';
     final payment = order['paymentMethod']?.toString() ?? 'cash';
 
@@ -1836,6 +1884,19 @@ class _InventoryOrderReportCard extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (productSummary.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    productSummary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: NovaColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 Wrap(
                   spacing: 8,
@@ -1847,7 +1908,7 @@ class _InventoryOrderReportCard extends StatelessWidget {
                     ),
                     _OrderReportChip(
                       icon: Icons.shopping_bag_outlined,
-                      label: '$items items',
+                      label: '$itemCount items',
                     ),
                     _OrderReportChip(
                       icon: Icons.payment_rounded,

@@ -22,6 +22,17 @@ class CartProvider with ChangeNotifier {
         },
       );
 
+  double get totalProfit => _items.fold(
+        0.0,
+        (sum, item) {
+          final qty = (item['qty'] as num?)?.toDouble() ?? 1.0;
+          final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+          final purchasePrice =
+              (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
+          return sum + ((price - purchasePrice) * qty);
+        },
+      );
+
   void _safeNotify() {
     if (!_disposed) {
       notifyListeners();
@@ -98,18 +109,31 @@ class CartProvider with ChangeNotifier {
       final newQty = ((existing['qty'] as num?)?.toInt() ?? 1) + qty;
 
       final price = (existing['price'] as num?)?.toDouble() ?? 0.0;
+      final purchasePrice =
+          (existing['purchasePrice'] as num?)?.toDouble() ?? 0.0;
 
       _items[existingIndex] = {
         ...existing,
         'qty': newQty,
         'quantity': newQty,
         'lineTotal': price * newQty,
+        'unitProfit': price - purchasePrice,
+        'lineProfit': (price - purchasePrice) * newQty,
       };
     } else {
       final rawPrice = product['price'] ?? product['retail_rate'];
       final price = rawPrice is num
           ? rawPrice.toDouble()
           : (double.tryParse(rawPrice?.toString() ?? '') ?? 0.0);
+      final originalPrice = _readDouble(
+        product['originalPrice'] ?? product['price'] ?? product['retail_rate'],
+      );
+      final purchasePrice =
+          _readDouble(product['purchasePrice'] ?? product['wholesale_rate']);
+      final discountPercent = originalPrice > 0 && price < originalPrice
+          ? ((originalPrice - price) / originalPrice) * 100
+          : 0.0;
+      final unitProfit = price - purchasePrice;
 
       final name =
           (product['name'] ?? product['item_name'])?.toString() ?? 'Unknown';
@@ -120,6 +144,19 @@ class CartProvider with ChangeNotifier {
         'name': name,
         'price': price,
         'unitPrice': price,
+        'originalPrice': originalPrice,
+        'purchasePrice': purchasePrice,
+        'discountPercent': discountPercent,
+        'isBargained': price != originalPrice,
+        'unitProfit': unitProfit,
+        'lineProfit': unitProfit * qty,
+        'minSalePrice':
+            _readDouble(product['minSalePrice'] ?? product['min_sale_price']),
+        'allowBargain':
+            product['allowBargain'] == true || product['allow_bargain'] == true,
+        'maxDiscountPercent': _readDouble(
+          product['maxDiscountPercent'] ?? product['max_discount_percent'],
+        ),
         'qty': qty,
         'quantity': qty,
         'lineTotal': price * qty,
@@ -154,12 +191,57 @@ class CartProvider with ChangeNotifier {
     final item = _items[index];
 
     final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+    final purchasePrice = (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
 
     _items[index] = {
       ...item,
       'qty': qty,
       'quantity': qty,
       'lineTotal': price * qty,
+      'unitProfit': price - purchasePrice,
+      'lineProfit': (price - purchasePrice) * qty,
+    };
+
+    _safeNotify();
+    await _persistCart();
+  }
+
+  Future<void> updateItemPrice(
+    String cartDocId,
+    double price, {
+    bool requiresApproval = false,
+    String? approvedBy,
+  }) async {
+    if (_disposed || price < 0) return;
+
+    final index = _items.indexWhere((item) => item['cartDocId'] == cartDocId);
+    if (index < 0) return;
+
+    final item = _items[index];
+    final qty = (item['qty'] as num?)?.toInt() ?? 1;
+    final originalPrice = (item['originalPrice'] as num?)?.toDouble() ??
+        (item['price'] as num?)?.toDouble() ??
+        price;
+    final discountPercent = originalPrice > 0 && price < originalPrice
+        ? ((originalPrice - price) / originalPrice) * 100
+        : 0.0;
+    final purchasePrice = (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
+    final unitProfit = price - purchasePrice;
+
+    _items[index] = {
+      ...item,
+      'price': price,
+      'unitPrice': price,
+      'originalPrice': originalPrice,
+      'discountPercent': discountPercent,
+      'isBargained': price != originalPrice,
+      'requiresAdminApproval': requiresApproval,
+      'adminApproved': requiresApproval && approvedBy != null,
+      if (approvedBy != null) 'approvedBy': approvedBy,
+      if (approvedBy != null) 'approvedAt': DateTime.now().toIso8601String(),
+      'lineTotal': price * qty,
+      'unitProfit': unitProfit,
+      'lineProfit': unitProfit * qty,
     };
 
     _safeNotify();
@@ -173,6 +255,11 @@ class CartProvider with ChangeNotifier {
 
     _safeNotify();
     await _persistCart();
+  }
+
+  static double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
   @override

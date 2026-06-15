@@ -8,6 +8,7 @@ import '../screens/reports/admin_dashboard_screen.dart';
 import '../screens/cart/checkout_screen.dart';
 import '../screens/admin/employee_manager_screen.dart';
 import '../screens/inventory/inventory_screen.dart';
+import '../screens/repairs/repairs_screen.dart';
 import '../core/utils/no_animation_route.dart';
 
 class AppRoutes {
@@ -19,6 +20,7 @@ class AppRoutes {
         '/admin': (_) => const AdminDashboardScreen(),
         '/employees': (_) => const EmployeeManagerScreen(),
         '/inventory': (_) => const InventoryScreen(),
+        '/repairs': (_) => const RepairsScreen(),
         '/unauthorized': (_) => const UnauthorizedScreen(),
       };
 

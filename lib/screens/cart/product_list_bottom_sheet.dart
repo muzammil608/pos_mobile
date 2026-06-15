@@ -220,16 +220,19 @@ class _ProductListBottomSheetState extends State<ProductListBottomSheet> {
     return ['All', ...categories];
   }
 
-  void _addFocusedProduct(BuildContext context) {
+  void _addFocusedProduct() {
     if (_products.isEmpty) return;
-    _addProduct(context, _products[_focusedIndex]);
+    _addProduct(_products[_focusedIndex]);
   }
 
-  void _addProduct(BuildContext context, Product product) {
-    context.read<CartProvider>().addItem({
+  Future<void> _addProduct(Product product) async {
+    final cart = context.read<CartProvider>();
+
+    await cart.addItem({
       'id': product.id,
       ...product.toMap(),
     });
+    if (!mounted) return;
     Navigator.pop(context);
   }
 
@@ -287,7 +290,7 @@ class _ProductListBottomSheetState extends State<ProductListBottomSheet> {
           ),
           _SheetSelectIntent: CallbackAction<_SheetSelectIntent>(
             onInvoke: (_) {
-              _addFocusedProduct(context);
+              _addFocusedProduct();
               return null;
             },
           ),
@@ -522,8 +525,7 @@ class _ProductListBottomSheetState extends State<ProductListBottomSheet> {
                                         ),
                                         product: product,
                                         isFocused: index == _focusedIndex,
-                                        onTap: () =>
-                                            _addProduct(context, product),
+                                        onTap: () => _addProduct(product),
                                         onFocus: () => setState(
                                             () => _focusedIndex = index),
                                       );
@@ -574,8 +576,7 @@ class _ProductListBottomSheetState extends State<ProductListBottomSheet> {
                                       ),
                                       product: product,
                                       isFocused: index == _focusedIndex,
-                                      onTap: () =>
-                                          _addProduct(context, product),
+                                      onTap: () => _addProduct(product),
                                       onFocus: () =>
                                           setState(() => _focusedIndex = index),
                                     );

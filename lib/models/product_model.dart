@@ -11,6 +11,9 @@ class Product {
   final String qualityTier;
   final double price;
   final double purchasePrice;
+  final double minSalePrice;
+  final bool allowBargain;
+  final double maxDiscountPercent;
   final String category;
   final String imageFilename;
   final String collectionId;
@@ -28,6 +31,9 @@ class Product {
     required this.qualityTier,
     required this.price,
     this.purchasePrice = 0,
+    this.minSalePrice = 0,
+    this.allowBargain = false,
+    this.maxDiscountPercent = 0,
     required this.category,
     this.imageFilename = '',
     this.collectionId = 'pbc_4092854851',
@@ -54,6 +60,18 @@ class Product {
 
   String get imageCacheKey => '$id:$imageFilename:$updatedAt';
 
+  double get salePrice => price;
+
+  double get bargainFloor {
+    var floor = purchasePrice;
+    if (minSalePrice > floor) floor = minSalePrice;
+    if (maxDiscountPercent > 0 && price > 0) {
+      final discountFloor = price * (1 - (maxDiscountPercent / 100));
+      if (discountFloor > floor) floor = discountFloor;
+    }
+    return floor.clamp(0, price).toDouble();
+  }
+
   factory Product.fromMap(Map<String, dynamic> data, String id) {
     final rawModelCode = data['model_code'];
     final rawBrand = data['brand'];
@@ -70,6 +88,9 @@ class Product {
         data['purchasePrice'] ??
         data['costPrice'] ??
         data['cost_price'];
+    final rawMinSalePrice = data['min_sale_price'] ?? data['minSalePrice'];
+    final rawMaxDiscountPercent =
+        data['max_discount_percent'] ?? data['maxDiscountPercent'];
     final rawCategory = data['category'] ?? data['type'];
 
     final parsedModelCode = rawModelCode?.toString().trim() ?? '';
@@ -84,6 +105,12 @@ class Product {
     final double? numericPurchasePrice = rawPurchasePrice is num
         ? rawPurchasePrice.toDouble()
         : double.tryParse(rawPurchasePrice?.toString() ?? '');
+    final double? numericMinSalePrice = rawMinSalePrice is num
+        ? rawMinSalePrice.toDouble()
+        : double.tryParse(rawMinSalePrice?.toString() ?? '');
+    final double? numericMaxDiscountPercent = rawMaxDiscountPercent is num
+        ? rawMaxDiscountPercent.toDouble()
+        : double.tryParse(rawMaxDiscountPercent?.toString() ?? '');
 
     final String modelCode = parsedModelCode.isEmpty ? 'N/A' : parsedModelCode;
     final String brand = parsedBrand.isEmpty ? 'Other' : parsedBrand;
@@ -102,6 +129,11 @@ class Product {
       qualityTier: qualityTier,
       price: price,
       purchasePrice: purchasePrice,
+      minSalePrice: numericMinSalePrice ?? 0,
+      allowBargain: _readBool(
+        data['allow_bargain'] ?? data['allowBargain'],
+      ),
+      maxDiscountPercent: numericMaxDiscountPercent ?? 0,
       category: category,
       imageFilename: data['image']?.toString() ?? '',
       collectionId: data['collectionId']?.toString() ?? 'pbc_4092854851',
@@ -123,6 +155,9 @@ class Product {
       'quality_tier': qualityTier,
       'wholesale_rate': purchasePrice,
       'retail_rate': price,
+      'min_sale_price': minSalePrice,
+      'allow_bargain': allowBargain,
+      'max_discount_percent': maxDiscountPercent,
       'category': category,
       if (ownerId != null) 'owner_id': ownerId,
       'stock_qty': stockQty,
@@ -136,5 +171,14 @@ class Product {
     if (raw is num) return raw.toInt();
     if (raw is String) return int.tryParse(raw);
     return null;
+  }
+
+  static bool _readBool(dynamic raw) {
+    if (raw is bool) return raw;
+    if (raw is num) return raw != 0;
+    if (raw is String) {
+      return raw.toLowerCase() == 'true' || raw == '1';
+    }
+    return false;
   }
 }

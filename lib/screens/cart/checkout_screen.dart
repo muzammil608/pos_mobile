@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/keyboard/pos_keyboard_system.dart';
 import '../../core/theme/nova_theme.dart';
 import '../../core/utils/app_notice.dart';
+import '../../core/utils/checkout_bargain.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../services/printer/thermal_printer_service.dart';
@@ -229,7 +230,7 @@ Color itemBgColor(String name) {
 }
 
 bool _cashIsInsufficient(double tendered, double total) {
-  return tendered.round() < total.round();
+  return CheckoutBargain.isInsufficient(tendered, total);
 }
 
 class CheckoutScreen extends StatefulWidget {
@@ -541,19 +542,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     _noticeKey.currentState?.clear();
 
-    final changeAmount =
-        _paymentMethod == 'cash' ? _tenderedAmount - cart.total : 0.0;
-    final orderTotal = cart.total;
+    final checkoutDiscount = _paymentMethod == 'cash'
+        ? CheckoutBargain.shortfall(_tenderedAmount, cart.total)
+        : 0.0;
+    final orderTotal = _paymentMethod == 'cash'
+        ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
+        : cart.total;
+    final changeAmount = _paymentMethod == 'cash'
+        ? CheckoutBargain.change(_tenderedAmount, cart.total)
+        : 0.0;
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
     setState(() => _isSubmitting = true);
 
     try {
-      final cartSnapshot = cart.items.map((item) {
+      final baseCartSnapshot = cart.items.map((item) {
         final qty = (item['qty'] as num?)?.toInt() ??
             (item['quantity'] as num?)?.toInt() ??
             1;
         final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+        final purchasePrice =
+            (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
         return <String, dynamic>{
           'name': item['name'] ?? 'Unknown',
           'qty': qty,
@@ -561,9 +570,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           'price': price,
           'unitPrice': price,
           'lineTotal': price * qty,
+          if (item['originalPrice'] != null)
+            'originalPrice': item['originalPrice'],
+          if (item['discountPercent'] != null)
+            'discountPercent': item['discountPercent'],
+          if (item['isBargained'] != null) 'isBargained': item['isBargained'],
+          if (item['requiresAdminApproval'] != null)
+            'requiresAdminApproval': item['requiresAdminApproval'],
+          if (item['adminApproved'] != null)
+            'adminApproved': item['adminApproved'],
+          if (item['approvedBy'] != null) 'approvedBy': item['approvedBy'],
+          if (item['approvedAt'] != null) 'approvedAt': item['approvedAt'],
+          'purchasePrice': purchasePrice,
+          'unitProfit': price - purchasePrice,
+          'lineProfit': (price - purchasePrice) * qty,
           if (item['productId'] != null) 'productId': item['productId'],
         };
       }).toList();
+      final cartSnapshot = CheckoutBargain.applyToItems(
+        baseCartSnapshot,
+        checkoutDiscount,
+      );
 
       final stockIssueMessage = await _validateStockBeforePlace(cartSnapshot);
       if (stockIssueMessage != null) {
@@ -949,7 +976,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
-                                            'Amount is less than total',
+                                            'Shortfall is more than Rs 500',
                                             style: TextStyle(
                                               color: NovaColors.danger,
                                               fontSize: 11,
@@ -986,7 +1013,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                         Row(
                                           children: [
                                             Icon(
-                                              Icons.change_circle_outlined,
+                                              CheckoutBargain.isAutomatic(
+                                                _tenderedAmount,
+                                                cart.total,
+                                              )
+                                                  ? Icons.price_change_outlined
+                                                  : Icons
+                                                      .change_circle_outlined,
                                               size: 15,
                                               color: !_cashIsInsufficient(
                                                       _tenderedAmount,
@@ -995,8 +1028,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                                   : NovaColors.danger,
                                             ),
                                             const SizedBox(width: 6),
-                                            const Text(
-                                              'Change Due',
+                                            Text(
+                                              CheckoutBargain.isAutomatic(
+                                                _tenderedAmount,
+                                                cart.total,
+                                              )
+                                                  ? 'Bargain Discount'
+                                                  : 'Change Due',
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w500,
                                                 fontSize: 13,
@@ -1006,7 +1044,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           ],
                                         ),
                                         Text(
-                                          'Rs ${(_tenderedAmount - cart.total).toStringAsFixed(0)}',
+                                          'Rs ${(CheckoutBargain.isAutomatic(_tenderedAmount, cart.total) ? CheckoutBargain.shortfall(_tenderedAmount, cart.total) : CheckoutBargain.change(_tenderedAmount, cart.total)).toStringAsFixed(0)}',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             fontSize: 14,

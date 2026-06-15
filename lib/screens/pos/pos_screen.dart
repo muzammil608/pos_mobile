@@ -12,6 +12,7 @@ import '../../core/theme/nova_theme.dart';
 import '../../core/theme/cafe_colors.dart';
 import '../../core/utils/clickable_cursor.dart';
 import '../../core/utils/app_notice.dart';
+import '../../core/utils/checkout_bargain.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
@@ -56,7 +57,7 @@ Color _itemBgColor(String name) {
 }
 
 bool _cashIsInsufficient(double tendered, double total) {
-  return tendered.round() < total.round();
+  return CheckoutBargain.isInsufficient(tendered, total);
 }
 
 class _CartActionOption {
@@ -857,6 +858,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     final qty = await _showQtyDialog(context, product.name, product.price);
     if (qty != null && qty > 0 && mounted) {
       final cart = Provider.of<CartProvider>(context, listen: false);
+
       final productMap = product.toMap();
       productMap['id'] = product.id;
       productMap['qty'] = qty;
@@ -1165,18 +1167,27 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       return false;
     }
     if (_isSubmitting) return false;
-    final changeAmount =
-        _paymentMethod == 'cash' ? _tenderedAmount - cart.total : 0.0;
+    final checkoutDiscount = _paymentMethod == 'cash'
+        ? CheckoutBargain.shortfall(_tenderedAmount, cart.total)
+        : 0.0;
+    final orderTotal = _paymentMethod == 'cash'
+        ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
+        : cart.total;
+    final changeAmount = _paymentMethod == 'cash'
+        ? CheckoutBargain.change(_tenderedAmount, cart.total)
+        : 0.0;
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
     setState(() => _isSubmitting = true);
 
     try {
-      final cartSnapshot = cart.items.map((item) {
+      final baseCartSnapshot = cart.items.map((item) {
         final qty = (item['qty'] as num?)?.toInt() ??
             (item['quantity'] as num?)?.toInt() ??
             1;
         final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+        final purchasePrice =
+            (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
         return <String, dynamic>{
           'name': item['name'] ?? 'Unknown',
           'qty': qty,
@@ -1184,9 +1195,27 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           'price': price,
           'unitPrice': price,
           'lineTotal': price * qty,
+          if (item['originalPrice'] != null)
+            'originalPrice': item['originalPrice'],
+          if (item['discountPercent'] != null)
+            'discountPercent': item['discountPercent'],
+          if (item['isBargained'] != null) 'isBargained': item['isBargained'],
+          if (item['requiresAdminApproval'] != null)
+            'requiresAdminApproval': item['requiresAdminApproval'],
+          if (item['adminApproved'] != null)
+            'adminApproved': item['adminApproved'],
+          if (item['approvedBy'] != null) 'approvedBy': item['approvedBy'],
+          if (item['approvedAt'] != null) 'approvedAt': item['approvedAt'],
+          'purchasePrice': purchasePrice,
+          'unitProfit': price - purchasePrice,
+          'lineProfit': (price - purchasePrice) * qty,
           if (item['productId'] != null) 'productId': item['productId'],
         };
       }).toList();
+      final cartSnapshot = CheckoutBargain.applyToItems(
+        baseCartSnapshot,
+        checkoutDiscount,
+      );
 
       final stockIssueMessage = await _validateStockBeforePlace(cartSnapshot);
       if (stockIssueMessage != null) {
@@ -1196,7 +1225,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
       final order = await _orderService!.createOrder(
         items: cartSnapshot,
-        total: cart.total,
+        total: orderTotal,
         status: 'ready',
         customerName: _customerName,
         paymentMethod: _paymentMethod,
@@ -2809,7 +2838,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       ),
                                                       const SizedBox(width: 4),
                                                       Text(
-                                                        'Amount is less than total',
+                                                        'Shortfall is more than Rs 500',
                                                         style: TextStyle(
                                                           color:
                                                               NovaColors.danger,
@@ -2860,8 +2889,15 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                     Row(
                                                       children: [
                                                         Icon(
-                                                          Icons
-                                                              .change_circle_outlined,
+                                                          CheckoutBargain
+                                                                  .isAutomatic(
+                                                            _tenderedAmount,
+                                                            cart.total,
+                                                          )
+                                                              ? Icons
+                                                                  .price_change_outlined
+                                                              : Icons
+                                                                  .change_circle_outlined,
                                                           size: 15,
                                                           color: !_cashIsInsufficient(
                                                                   _tenderedAmount,
@@ -2872,8 +2908,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                         ),
                                                         const SizedBox(
                                                             width: 6),
-                                                        const Text(
-                                                          'Change Due',
+                                                        Text(
+                                                          CheckoutBargain
+                                                                  .isAutomatic(
+                                                            _tenderedAmount,
+                                                            cart.total,
+                                                          )
+                                                              ? 'Bargain Discount'
+                                                              : 'Change Due',
                                                           style: TextStyle(
                                                             fontWeight:
                                                                 FontWeight.w500,
@@ -2885,7 +2927,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       ],
                                                     ),
                                                     Text(
-                                                      'Rs ${(_tenderedAmount - cart.total).toStringAsFixed(0)}',
+                                                      'Rs ${(CheckoutBargain.isAutomatic(_tenderedAmount, cart.total) ? CheckoutBargain.shortfall(_tenderedAmount, cart.total) : CheckoutBargain.change(_tenderedAmount, cart.total)).toStringAsFixed(0)}',
                                                       style: TextStyle(
                                                         fontWeight:
                                                             FontWeight.w700,
