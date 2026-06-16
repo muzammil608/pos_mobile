@@ -21,6 +21,7 @@ import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
 import '../../services/pocketbase/product_service.dart';
 import '../../widgets/app_navigation.dart';
+import '../../widgets/bargain_price_dialog.dart';
 import '../../widgets/receipt_dialog.dart';
 import '../../widgets/responsive_layout.dart';
 import '../cart/product_list_bottom_sheet.dart';
@@ -58,6 +59,11 @@ Color _itemBgColor(String name) {
 
 bool _cashIsInsufficient(double tendered, double total) {
   return CheckoutBargain.isInsufficient(tendered, total);
+}
+
+double _readCartDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0.0;
 }
 
 class _CartActionOption {
@@ -997,6 +1003,63 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _showBargainItemDialog(
+    CartProvider cart,
+    Map<String, dynamic> item,
+  ) async {
+    final cartDocId = item['cartDocId'] as String? ?? '';
+    if (cartDocId.isEmpty) return;
+
+    final allowBargain = item['allowBargain'] == true;
+    if (!allowBargain) {
+      _noticeKey.currentState?.show(
+        'Bargaining is disabled for this item.',
+        type: AppNoticeType.warning,
+      );
+      return;
+    }
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final salePrice =
+        _readCartDouble(item['originalPrice'] ?? item['price'] ?? 0);
+    final currentPrice =
+        _readCartDouble(item['unitPrice'] ?? item['price'] ?? salePrice);
+    final purchasePrice = _readCartDouble(item['purchasePrice']);
+    final minSalePrice = _readCartDouble(item['minSalePrice']);
+    final maxDiscountPercent = _readCartDouble(item['maxDiscountPercent']);
+
+    final result = await showDialog<BargainPriceResult>(
+      context: context,
+      builder: (dialogContext) => BargainPriceDialog(
+        itemName: item['name']?.toString() ?? 'Item',
+        salePrice: salePrice,
+        purchasePrice: purchasePrice,
+        minSalePrice: minSalePrice,
+        maxDiscountPercent: maxDiscountPercent,
+        canApproveBelowFloor: auth.isAdmin,
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    CartUndoStack.instance.push('Bargain ${item['name'] ?? 'item'}', () {
+      cart.updateItemPrice(cartDocId, currentPrice);
+    });
+    await cart.updateItemPrice(
+      cartDocId,
+      result.price,
+      requiresApproval: result.requiresAdminApproval,
+      approvedBy: result.requiresAdminApproval ? auth.role : null,
+    );
+
+    if (!mounted) return;
+    final discount = (salePrice - result.price).clamp(0, salePrice).toDouble();
+    _noticeKey.currentState?.show(
+      'Bargain applied: Rs ${discount.toStringAsFixed(0)} off.',
+      type: AppNoticeType.success,
+    );
+  }
+
   Future<void> _deleteCartItem(
     CartProvider cart,
     Map<String, dynamic> item,
@@ -1081,6 +1144,14 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         color: NovaColors.amber,
       ),
       _CartActionOption(
+        value: 'bargain',
+        label:
+            item['allowBargain'] == true ? 'Bargain Price' : 'Bargain Disabled',
+        icon: Icons.price_change_outlined,
+        color: NovaColors.teal,
+        enabled: cartDocId.isNotEmpty && item['allowBargain'] == true,
+      ),
+      _CartActionOption(
         value: 'delete',
         label: 'Remove',
         icon: Icons.delete_outline,
@@ -1112,6 +1183,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       await _openProductBottomSheet(context);
     } else if (value == 'edit') {
       await _showEditItemDialog(cart, item);
+    } else if (value == 'bargain') {
+      await _showBargainItemDialog(cart, item);
     } else if (value == 'delete') {
       await _deleteCartItem(cart, item);
       if (!mounted) return;
@@ -1167,9 +1240,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       return false;
     }
     if (_isSubmitting) return false;
-    final checkoutDiscount = _paymentMethod == 'cash'
-        ? CheckoutBargain.shortfall(_tenderedAmount, cart.total)
-        : 0.0;
+    const checkoutDiscount = 0.0;
     final orderTotal = _paymentMethod == 'cash'
         ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
         : cart.total;
@@ -2838,7 +2909,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       ),
                                                       const SizedBox(width: 4),
                                                       Text(
-                                                        'Shortfall is more than Rs 500',
+                                                        'Cash tendered is less than total',
                                                         style: TextStyle(
                                                           color:
                                                               NovaColors.danger,
@@ -2889,15 +2960,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                     Row(
                                                       children: [
                                                         Icon(
-                                                          CheckoutBargain
-                                                                  .isAutomatic(
-                                                            _tenderedAmount,
-                                                            cart.total,
-                                                          )
-                                                              ? Icons
-                                                                  .price_change_outlined
-                                                              : Icons
-                                                                  .change_circle_outlined,
+                                                          Icons
+                                                              .change_circle_outlined,
                                                           size: 15,
                                                           color: !_cashIsInsufficient(
                                                                   _tenderedAmount,
@@ -2909,13 +2973,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                         const SizedBox(
                                                             width: 6),
                                                         Text(
-                                                          CheckoutBargain
-                                                                  .isAutomatic(
-                                                            _tenderedAmount,
-                                                            cart.total,
-                                                          )
-                                                              ? 'Bargain Discount'
-                                                              : 'Change Due',
+                                                          'Change Due',
                                                           style: TextStyle(
                                                             fontWeight:
                                                                 FontWeight.w500,
@@ -2927,7 +2985,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       ],
                                                     ),
                                                     Text(
-                                                      'Rs ${(CheckoutBargain.isAutomatic(_tenderedAmount, cart.total) ? CheckoutBargain.shortfall(_tenderedAmount, cart.total) : CheckoutBargain.change(_tenderedAmount, cart.total)).toStringAsFixed(0)}',
+                                                      'Rs ${CheckoutBargain.change(_tenderedAmount, cart.total).toStringAsFixed(0)}',
                                                       style: TextStyle(
                                                         fontWeight:
                                                             FontWeight.w700,
@@ -3046,6 +3104,20 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                                 as num?)
                                                             ?.toDouble() ??
                                                         price * qty;
+                                                final originalPrice =
+                                                    _readCartDouble(
+                                                  item['originalPrice'],
+                                                );
+                                                final isBargained =
+                                                    item['isBargained'] ==
+                                                            true &&
+                                                        originalPrice > price;
+                                                final bargainSavings =
+                                                    isBargained
+                                                        ? (originalPrice -
+                                                                price) *
+                                                            qty
+                                                        : 0.0;
                                                 final name =
                                                     item['name']?.toString() ??
                                                         'Item';
@@ -3209,7 +3281,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                                       width: 6),
                                                                   Expanded(
                                                                     child: Text(
-                                                                      'Rs ${price.toStringAsFixed(0)} each',
+                                                                      isBargained
+                                                                          ? 'Rs ${price.toStringAsFixed(0)} each  |  was Rs ${originalPrice.toStringAsFixed(0)}'
+                                                                          : 'Rs ${price.toStringAsFixed(0)} each',
                                                                       maxLines:
                                                                           1,
                                                                       overflow:
@@ -3226,6 +3300,57 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                                   ),
                                                                 ],
                                                               ),
+                                                              if (isBargained) ...[
+                                                                const SizedBox(
+                                                                    height: 5),
+                                                                Container(
+                                                                  padding:
+                                                                      const EdgeInsets
+                                                                          .symmetric(
+                                                                    horizontal:
+                                                                        7,
+                                                                    vertical: 3,
+                                                                  ),
+                                                                  decoration:
+                                                                      BoxDecoration(
+                                                                    color: item['requiresAdminApproval'] ==
+                                                                            true
+                                                                        ? NovaColors
+                                                                            .dangerLight
+                                                                        : NovaColors
+                                                                            .tealLight,
+                                                                    borderRadius:
+                                                                        BorderRadius
+                                                                            .circular(
+                                                                      6,
+                                                                    ),
+                                                                  ),
+                                                                  child: Text(
+                                                                    item['requiresAdminApproval'] ==
+                                                                            true
+                                                                        ? 'Needs approval - Rs ${bargainSavings.toStringAsFixed(0)} off'
+                                                                        : 'Bargained - Rs ${bargainSavings.toStringAsFixed(0)} off',
+                                                                    maxLines: 1,
+                                                                    overflow:
+                                                                        TextOverflow
+                                                                            .ellipsis,
+                                                                    style:
+                                                                        TextStyle(
+                                                                      fontSize:
+                                                                          10,
+                                                                      color: item['requiresAdminApproval'] ==
+                                                                              true
+                                                                          ? NovaColors
+                                                                              .danger
+                                                                          : NovaColors
+                                                                              .teal,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w700,
+                                                                    ),
+                                                                  ),
+                                                                ),
+                                                              ],
                                                             ],
                                                           ),
                                                         ),

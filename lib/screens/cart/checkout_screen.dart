@@ -542,9 +542,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     _noticeKey.currentState?.clear();
 
-    final checkoutDiscount = _paymentMethod == 'cash'
-        ? CheckoutBargain.shortfall(_tenderedAmount, cart.total)
-        : 0.0;
+    const checkoutDiscount = 0.0;
     final orderTotal = _paymentMethod == 'cash'
         ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
         : cart.total;
@@ -976,7 +974,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
-                                            'Shortfall is more than Rs 500',
+                                            'Cash tendered is less than total',
                                             style: TextStyle(
                                               color: NovaColors.danger,
                                               fontSize: 11,
@@ -1013,13 +1011,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                         Row(
                                           children: [
                                             Icon(
-                                              CheckoutBargain.isAutomatic(
-                                                _tenderedAmount,
-                                                cart.total,
-                                              )
-                                                  ? Icons.price_change_outlined
-                                                  : Icons
-                                                      .change_circle_outlined,
+                                              Icons.change_circle_outlined,
                                               size: 15,
                                               color: !_cashIsInsufficient(
                                                       _tenderedAmount,
@@ -1029,12 +1021,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                             ),
                                             const SizedBox(width: 6),
                                             Text(
-                                              CheckoutBargain.isAutomatic(
-                                                _tenderedAmount,
-                                                cart.total,
-                                              )
-                                                  ? 'Bargain Discount'
-                                                  : 'Change Due',
+                                              'Change Due',
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w500,
                                                 fontSize: 13,
@@ -1044,7 +1031,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           ],
                                         ),
                                         Text(
-                                          'Rs ${(CheckoutBargain.isAutomatic(_tenderedAmount, cart.total) ? CheckoutBargain.shortfall(_tenderedAmount, cart.total) : CheckoutBargain.change(_tenderedAmount, cart.total)).toStringAsFixed(0)}',
+                                          'Rs ${CheckoutBargain.change(_tenderedAmount, cart.total).toStringAsFixed(0)}',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             fontSize: 14,

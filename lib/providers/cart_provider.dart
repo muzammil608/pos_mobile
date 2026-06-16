@@ -228,7 +228,7 @@ class CartProvider with ChangeNotifier {
     final purchasePrice = (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
     final unitProfit = price - purchasePrice;
 
-    _items[index] = {
+    final updatedItem = {
       ...item,
       'price': price,
       'unitPrice': price,
@@ -243,6 +243,12 @@ class CartProvider with ChangeNotifier {
       'unitProfit': unitProfit,
       'lineProfit': unitProfit * qty,
     };
+    if (approvedBy == null) {
+      updatedItem.remove('approvedBy');
+      updatedItem.remove('approvedAt');
+    }
+
+    _items[index] = updatedItem;
 
     _safeNotify();
     await _persistCart();

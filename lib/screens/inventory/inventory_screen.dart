@@ -18,6 +18,7 @@ import '../../providers/auth_provider.dart';
 import '../../core/utils/no_animation_route.dart';
 import '../../screens/products/products_screen.dart';
 import '../../services/pocketbase/inventory_service.dart';
+import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/report_service.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/receipt_dialog.dart';
@@ -716,18 +717,47 @@ class _InventoryBody extends StatefulWidget {
 }
 
 class _InventoryBodyState extends State<_InventoryBody> {
-  late Future<(List<Product>, List<InventoryTransaction>)> _future;
+  late final OrderService _orderService;
+  late Future<
+      (
+        List<Product>,
+        List<InventoryTransaction>,
+        List<Map<String, dynamic>>
+      )> _future;
   StreamSubscription<List<Product>>? _productsSub;
   bool _profitExpanded = false;
 
-  Future<(List<Product>, List<InventoryTransaction>)> _loadData() => (
-        widget.service.getProducts(),
-        widget.service.getTransactions(limit: 120),
-      ).wait;
+  Future<
+      (
+        List<Product>,
+        List<InventoryTransaction>,
+        List<Map<String, dynamic>>
+      )> _loadData() async {
+    final (products, transactions, orders) = await (
+      widget.service.getProducts(),
+      widget.service.getTransactions(limit: 120),
+      _orderService.getOrdersList(),
+    ).wait;
+
+    return (
+      products,
+      transactions,
+      orders
+          .map(
+            (order) => <String, dynamic>{
+              ...order.toMap(),
+              'id': order.id,
+              'createdAtDate': order.createdAt,
+            },
+          )
+          .toList(),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
+    _orderService = OrderService(widget.service.ownerId);
     _future = _loadData();
     _productsSub = widget.service.streamProducts().listen((_) {
       _refresh();
@@ -753,7 +783,12 @@ class _InventoryBodyState extends State<_InventoryBody> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(List<Product>, List<InventoryTransaction>)>(
+    return FutureBuilder<
+        (
+          List<Product>,
+          List<InventoryTransaction>,
+          List<Map<String, dynamic>>
+        )>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -772,7 +807,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
               child: CircularProgressIndicator(color: NovaColors.teal));
         }
 
-        final (products, transactions) = snapshot.data!;
+        final (products, transactions, orders) = snapshot.data!;
         final summary = InventorySummary.fromProducts(products);
 
         final categorySet = products.map((e) => e.category.trim()).toSet();
@@ -789,6 +824,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
             _ProfitExpansionPanel(
               products: products,
               transactions: transactions,
+              orders: orders,
               expanded: _profitExpanded,
               onToggle: () =>
                   setState(() => _profitExpanded = !_profitExpanded),
@@ -2331,12 +2367,14 @@ class _ProfitExpansionPanel extends StatelessWidget {
   const _ProfitExpansionPanel({
     required this.products,
     required this.transactions,
+    required this.orders,
     required this.expanded,
     required this.onToggle,
   });
 
   final List<Product> products;
   final List<InventoryTransaction> transactions;
+  final List<Map<String, dynamic>> orders;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -2357,18 +2395,29 @@ class _ProfitExpansionPanel extends StatelessWidget {
           (soldQtyByProduct[tx.productId] ?? 0) + tx.quantity;
     }
 
+    final orderProfitByProduct = _orderProfitByProduct(orders, cutoff);
+    final hasActualOrderProfit = orderProfitByProduct.isNotEmpty;
     final productsWithCost = products.where((p) => p.purchasePrice > 0).length;
-    final saleValue = soldQtyByProduct.entries.fold<double>(0, (sum, entry) {
-      final p = productById[entry.key];
-      if (p == null) return sum;
-      return sum + (p.price * entry.value);
-    });
-    final purchaseValue =
-        soldQtyByProduct.entries.fold<double>(0, (sum, entry) {
-      final p = productById[entry.key];
-      if (p == null) return sum;
-      return sum + (p.purchasePrice * entry.value);
-    });
+    final saleValue = hasActualOrderProfit
+        ? orderProfitByProduct.values.fold<double>(
+            0,
+            (sum, item) => sum + item.saleValue,
+          )
+        : soldQtyByProduct.entries.fold<double>(0, (sum, entry) {
+            final p = productById[entry.key];
+            if (p == null) return sum;
+            return sum + (p.price * entry.value);
+          });
+    final purchaseValue = hasActualOrderProfit
+        ? orderProfitByProduct.values.fold<double>(
+            0,
+            (sum, item) => sum + item.purchaseValue,
+          )
+        : soldQtyByProduct.entries.fold<double>(0, (sum, entry) {
+            final p = productById[entry.key];
+            if (p == null) return sum;
+            return sum + (p.purchasePrice * entry.value);
+          });
     final stockSaleValue = products.fold<double>(
       0,
       (sum, p) => sum + (p.price * p.stockQty),
@@ -2378,16 +2427,27 @@ class _ProfitExpansionPanel extends StatelessWidget {
       (sum, p) => sum + (p.purchasePrice * p.stockQty),
     );
     final stockProfit = stockSaleValue - stockCostValue;
-    final profit = saleValue - purchaseValue;
+    final profit = hasActualOrderProfit
+        ? orderProfitByProduct.values.fold<double>(
+            0,
+            (sum, item) => sum + item.profit,
+          )
+        : saleValue - purchaseValue;
     final margin = saleValue <= 0 ? 0 : (profit / saleValue) * 100;
-    final soldProducts = soldQtyByProduct.keys
-        .map((id) => productById[id])
-        .whereType<Product>()
-        .toList();
-    soldProducts.sort(
-      (a, b) => _salesProfit(b, soldQtyByProduct[b.id] ?? 0)
-          .compareTo(_salesProfit(a, soldQtyByProduct[a.id] ?? 0)),
-    );
+    final soldProducts = hasActualOrderProfit
+        ? <Product>[]
+        : soldQtyByProduct.keys
+            .map((id) => productById[id])
+            .whereType<Product>()
+            .toList();
+    if (!hasActualOrderProfit) {
+      soldProducts.sort(
+        (a, b) => _salesProfit(b, soldQtyByProduct[b.id] ?? 0)
+            .compareTo(_salesProfit(a, soldQtyByProduct[a.id] ?? 0)),
+      );
+    }
+    final actualProfitRows = orderProfitByProduct.values.toList()
+      ..sort((a, b) => b.profit.compareTo(a.profit));
 
     return Container(
       decoration: BoxDecoration(
@@ -2432,7 +2492,9 @@ class _ProfitExpansionPanel extends StatelessWidget {
                         Text(
                           expanded
                               ? 'Sales margin ${margin.toStringAsFixed(1)}%'
-                              : 'Tap to view sold-value profit summary',
+                              : hasActualOrderProfit
+                                  ? 'Actual profit from POS orders'
+                                  : 'Estimated from stock sale records',
                           style: const TextStyle(
                               color: NovaColors.textSecondary, fontSize: 12),
                           maxLines: 1,
@@ -2524,12 +2586,18 @@ class _ProfitExpansionPanel extends StatelessWidget {
                     );
                   }),
                   const SizedBox(height: 12),
-                  if (soldProducts.isEmpty)
+                  if (hasActualOrderProfit)
+                    Column(
+                      children: actualProfitRows.take(3).map((row) {
+                        return _ProfitProductRow.actual(row: row);
+                      }).toList(),
+                    )
+                  else if (soldProducts.isEmpty)
                     const _MutedText(text: 'No sales yet to calculate profit.')
                   else
                     Column(
                       children: soldProducts.take(3).map((p) {
-                        return _ProfitProductRow(
+                        return _ProfitProductRow.estimated(
                           product: p,
                           soldQty: soldQtyByProduct[p.id] ?? 0,
                         );
@@ -2586,24 +2654,122 @@ class _ProfitStat extends StatelessWidget {
   }
 }
 
+class _ProductProfitSummary {
+  _ProductProfitSummary({
+    required this.productId,
+    required this.name,
+  });
+
+  final String productId;
+  final String name;
+  int quantity = 0;
+  double saleValue = 0;
+  double purchaseValue = 0;
+  double profit = 0;
+
+  double get averageUnitSale => quantity <= 0 ? 0 : saleValue / quantity;
+  double get averageUnitCost => quantity <= 0 ? 0 : purchaseValue / quantity;
+}
+
+Map<String, _ProductProfitSummary> _orderProfitByProduct(
+  List<Map<String, dynamic>> orders,
+  DateTime cutoff,
+) {
+  final result = <String, _ProductProfitSummary>{};
+
+  for (final order in orders) {
+    final createdAt =
+        _readOrderDate(order['createdAtDate'] ?? order['createdAt']);
+    if (createdAt == null || !createdAt.toLocal().isAfter(cutoff)) continue;
+
+    final items = order['items'];
+    if (items is! List) continue;
+
+    for (final rawItem in items) {
+      if (rawItem is! Map) continue;
+      final item = Map<String, dynamic>.from(rawItem);
+      final productId = item['productId']?.toString() ?? '';
+      if (productId.isEmpty) continue;
+
+      final qty = _readInt(item['qty'] ?? item['quantity']) ?? 1;
+      final unitPrice = _readDouble(item['unitPrice'] ?? item['price']);
+      final lineTotal = item['lineTotal'] == null
+          ? unitPrice * qty
+          : _readDouble(item['lineTotal']);
+      final purchasePrice = _readDouble(item['purchasePrice']);
+      final fallbackProfit = lineTotal - (purchasePrice * qty);
+      final lineProfit = item['lineProfit'] == null
+          ? fallbackProfit
+          : _readDouble(item['lineProfit']);
+
+      final current = result[productId] ??
+          _ProductProfitSummary(
+            productId: productId,
+            name: item['name']?.toString() ?? 'Item',
+          );
+      current.quantity += qty;
+      current.saleValue += lineTotal;
+      current.purchaseValue += purchasePrice * qty;
+      current.profit += lineProfit;
+      result[productId] = current;
+    }
+  }
+
+  return result;
+}
+
+DateTime? _readOrderDate(dynamic raw) {
+  if (raw is DateTime) return raw;
+  if (raw is String) return DateTime.tryParse(raw);
+  return null;
+}
+
+int? _readInt(dynamic raw) {
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  if (raw is String) return int.tryParse(raw);
+  return null;
+}
+
+double _readDouble(dynamic raw) {
+  if (raw is num) return raw.toDouble();
+  if (raw is String) return double.tryParse(raw) ?? 0;
+  return 0;
+}
+
 class _ProfitProductRow extends StatelessWidget {
-  const _ProfitProductRow({
+  const _ProfitProductRow.estimated({
     required this.product,
     required this.soldQty,
-  });
-  final Product product;
+  }) : row = null;
+
+  const _ProfitProductRow.actual({
+    required this.row,
+  })  : product = null,
+        soldQty = 0;
+
+  final Product? product;
   final int soldQty;
+  final _ProductProfitSummary? row;
 
   @override
   Widget build(BuildContext context) {
-    final profit = _salesProfit(product, soldQty);
+    final actual = row;
+    final estimatedProduct = product;
+    final name = actual?.name ?? estimatedProduct?.name ?? 'Item';
+    final qty = actual?.quantity ?? soldQty;
+    final priceLabel = actual != null
+        ? '${_formatMoney(actual.averageUnitCost)} -> ${_formatMoney(actual.averageUnitSale)}'
+        : '${_formatMoney(estimatedProduct!.purchasePrice)} -> ${_formatMoney(estimatedProduct.price)}';
+    final profit = actual?.profit ?? _salesProfit(estimatedProduct!, soldQty);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              product.name,
+              name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style:
@@ -2612,13 +2778,13 @@ class _ProfitProductRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Text(
-            'x$soldQty',
+            'x$qty',
             style:
                 const TextStyle(color: NovaColors.textSecondary, fontSize: 11),
           ),
           const SizedBox(width: 10),
           Text(
-            '${_formatMoney(product.purchasePrice)} -> ${_formatMoney(product.price)}',
+            priceLabel,
             style:
                 const TextStyle(color: NovaColors.textSecondary, fontSize: 11),
           ),

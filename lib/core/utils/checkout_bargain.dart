@@ -1,27 +1,22 @@
 class CheckoutBargain {
-  static const double maxAutomaticDiscount = 500;
-
   static double shortfall(double tendered, double total) {
     if (tendered <= 0 || tendered >= total) return 0;
     return total - tendered;
   }
 
   static bool isAutomatic(double tendered, double total) {
-    final discount = shortfall(tendered, total);
-    return discount > 0 && discount <= maxAutomaticDiscount;
+    return false;
   }
 
   static bool isInsufficient(double tendered, double total) {
-    if (tendered <= 0) return true;
-    return shortfall(tendered, total) > maxAutomaticDiscount;
+    return tendered < total;
   }
 
   static double orderTotal(double tendered, double total) {
-    return isAutomatic(tendered, total) ? tendered : total;
+    return total;
   }
 
   static double change(double tendered, double total) {
-    if (isAutomatic(tendered, total)) return 0;
     return tendered > total ? tendered - total : 0;
   }
 

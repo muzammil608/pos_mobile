@@ -33,11 +33,24 @@ class BargainPriceDialog extends StatefulWidget {
   });
 
   double get allowedFloor {
-    return math.max(1, salePrice - 500).toDouble();
+    if (salePrice <= 0) return 0;
+    final discountFloor = maxDiscountPercent > 0 && salePrice > 0
+        ? salePrice * (1 - (maxDiscountPercent / 100))
+        : 0.0;
+    final floor = [
+      1.0,
+      purchasePrice,
+      minSalePrice,
+      discountFloor,
+    ].reduce(math.max);
+    return floor.clamp(1, salePrice).toDouble();
   }
 
   double get suggestedPrice {
-    return allowedFloor;
+    if (salePrice <= 0) return 0;
+    final naturalDiscount = math.min(500.0, salePrice * 0.1);
+    final suggested = salePrice - naturalDiscount;
+    return math.max(allowedFloor, suggested).clamp(1, salePrice).toDouble();
   }
 
   @override
@@ -94,13 +107,40 @@ class _BargainPriceDialogState extends State<BargainPriceDialog> {
     );
   }
 
+  void _setPrice(double price) {
+    if (widget.salePrice <= 0) return;
+    final next = price.clamp(1, widget.salePrice).toDouble();
+    setState(() {
+      _controller.text = next.toStringAsFixed(0);
+      _controller.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _controller.text.length,
+      );
+      _error = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final floor = widget.allowedFloor;
+    final currentPrice = double.tryParse(_controller.text.trim());
+    final discount = currentPrice == null
+        ? 0.0
+        : (widget.salePrice - currentPrice).clamp(0, widget.salePrice);
+    final discountPercent =
+        widget.salePrice > 0 ? (discount / widget.salePrice) * 100 : 0.0;
+    final profitAfterBargain = currentPrice == null
+        ? 0.0
+        : (currentPrice - widget.purchasePrice).clamp(
+            double.negativeInfinity,
+            double.infinity,
+          );
+    final needsApproval = currentPrice != null && currentPrice < floor;
+
     return AlertDialog(
       backgroundColor: NovaColors.bgPrimary,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Text('Confirm Bargain Price'),
+      title: const Text('Bargain Price'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: Column(
@@ -136,12 +176,35 @@ class _BargainPriceDialogState extends State<BargainPriceDialog> {
                   ),
                   Expanded(
                     child: _PriceSummary(
-                      label: 'Suggested',
-                      value: widget.suggestedPrice,
+                      label: 'Minimum',
+                      value: floor,
                     ),
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _QuickPriceChip(
+                  label: '-100',
+                  onTap: () => _setPrice(widget.salePrice - 100),
+                ),
+                _QuickPriceChip(
+                  label: '-250',
+                  onTap: () => _setPrice(widget.salePrice - 250),
+                ),
+                _QuickPriceChip(
+                  label: '-500',
+                  onTap: () => _setPrice(widget.salePrice - 500),
+                ),
+                _QuickPriceChip(
+                  label: 'Minimum',
+                  onTap: () => _setPrice(floor),
+                ),
+              ],
             ),
             const SizedBox(height: 14),
             TextField(
@@ -149,6 +212,7 @@ class _BargainPriceDialogState extends State<BargainPriceDialog> {
               autofocus: true,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setState(() => _error = null),
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 labelText: 'Final bargain price',
@@ -160,12 +224,43 @@ class _BargainPriceDialogState extends State<BargainPriceDialog> {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
-              'Allowed minimum: Rs ${floor.toStringAsFixed(0)}',
-              style: const TextStyle(
-                color: NovaColors.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: needsApproval
+                    ? NovaColors.dangerLight
+                    : NovaColors.bgSecondary,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: needsApproval
+                      ? NovaColors.danger.withValues(alpha: 0.25)
+                      : NovaColors.borderTertiary,
+                ),
+              ),
+              child: Column(
+                children: [
+                  _BargainMetricRow(
+                    label: 'Discount',
+                    value:
+                        'Rs ${discount.toStringAsFixed(0)} (${discountPercent.toStringAsFixed(1)}%)',
+                  ),
+                  const SizedBox(height: 6),
+                  _BargainMetricRow(
+                    label: 'Profit after bargain',
+                    value: 'Rs ${profitAfterBargain.toStringAsFixed(0)}',
+                    valueColor: profitAfterBargain >= 0
+                        ? NovaColors.teal
+                        : NovaColors.danger,
+                  ),
+                  if (needsApproval) ...[
+                    const SizedBox(height: 6),
+                    const _BargainMetricRow(
+                      label: 'Status',
+                      value: 'Needs admin approval',
+                      valueColor: NovaColors.danger,
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
@@ -179,6 +274,73 @@ class _BargainPriceDialogState extends State<BargainPriceDialog> {
         FilledButton(
           onPressed: _submit,
           child: const Text('Confirm'),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickPriceChip extends StatelessWidget {
+  const _QuickPriceChip({
+    required this.label,
+    required this.onTap,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      onPressed: onTap,
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+      backgroundColor: NovaColors.bgSecondary,
+      side: const BorderSide(color: NovaColors.borderTertiary),
+      labelStyle: const TextStyle(
+        color: NovaColors.textSecondary,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _BargainMetricRow extends StatelessWidget {
+  const _BargainMetricRow({
+    required this.label,
+    required this.value,
+    this.valueColor = NovaColors.textPrimary,
+  });
+
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: NovaColors.textSecondary,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ),
       ],
     );

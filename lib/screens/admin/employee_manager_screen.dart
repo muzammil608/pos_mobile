@@ -453,139 +453,162 @@ class _EmployeeManagerScreenState extends State<EmployeeManagerScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return Dialog(
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(24)),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            gradient: CafeColors.headerGradient,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.badge_outlined,
-                              color: Colors.white, size: 20),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Change Role',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: CafeColors.charcoal,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      name,
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: CafeColors.charcoal.withOpacity(0.5)),
-                    ),
-                    const SizedBox(height: 20),
-                    DropdownButtonFormField<String>(
-                      value: selectedRole,
-                      decoration: InputDecoration(
-                        labelText: 'Role',
-                        labelStyle:
-                            TextStyle(color: CafeColors.flame.withOpacity(0.8)),
-                        prefixIcon: const Icon(Icons.badge_outlined,
-                            color: CafeColors.flame, size: 20),
-                        border: OutlineInputBorder(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 360;
+                    final cancelButton = OutlinedButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(
+                            color: CafeColors.flame.withOpacity(0.4)),
+                        shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14)),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                              color: CafeColors.flame.withOpacity(0.2)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                              color: CafeColors.flame, width: 2),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(
-                            vertical: 14, horizontal: 12),
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'cashier', child: Text('Cashier')),
-                      ],
-                      onChanged: (value) => setDialogState(
-                          () => selectedRole = value ?? 'cashier'),
-                    ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(dialogContext),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: BorderSide(
-                                  color: CafeColors.flame.withOpacity(0.4)),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14)),
+                      child: const Text('Cancel',
+                          style: TextStyle(color: CafeColors.flame)),
+                    );
+                    final updateButton = DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: CafeColors.headerGradient,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          Navigator.pop(dialogContext);
+                          final auth =
+                              Provider.of<AuthProvider>(context, listen: false);
+                          final success =
+                              await auth.updateUserRole(userId, selectedRole);
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(success
+                                  ? 'Role updated successfully'
+                                  : 'Failed to update role'),
+                              backgroundColor:
+                                  success ? CafeColors.olive : Colors.red,
                             ),
-                            child: const Text('Cancel',
-                                style: TextStyle(color: CafeColors.flame)),
-                          ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.transparent,
+                          shadowColor: Colors.transparent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: CafeColors.headerGradient,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: ElevatedButton(
-                              onPressed: () async {
-                                Navigator.pop(dialogContext);
-                                final auth = Provider.of<AuthProvider>(context,
-                                    listen: false);
-                                final success = await auth.updateUserRole(
-                                    userId, selectedRole);
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(success
-                                        ? 'Role updated successfully'
-                                        : 'Failed to update role'),
-                                    backgroundColor:
-                                        success ? CafeColors.olive : Colors.red,
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14)),
+                        child: const Text('Update',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    );
+
+                    return Padding(
+                      padding: EdgeInsets.all(compact ? 18 : 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  gradient: CafeColors.headerGradient,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.badge_outlined,
+                                    color: Colors.white, size: 20),
                               ),
-                              child: const Text('Update',
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Change Role',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700)),
-                            ),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: CafeColors.charcoal,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                          const SizedBox(height: 6),
+                          Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: CafeColors.charcoal.withOpacity(0.5)),
+                          ),
+                          const SizedBox(height: 20),
+                          DropdownButtonFormField<String>(
+                            value: selectedRole,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              labelText: 'Role',
+                              labelStyle: TextStyle(
+                                  color: CafeColors.flame.withOpacity(0.8)),
+                              prefixIcon: const Icon(Icons.badge_outlined,
+                                  color: CafeColors.flame, size: 20),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14)),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: BorderSide(
+                                    color: CafeColors.flame.withOpacity(0.2)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                    color: CafeColors.flame, width: 2),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 14, horizontal: 12),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                  value: 'cashier', child: Text('Cashier')),
+                            ],
+                            onChanged: (value) => setDialogState(
+                                () => selectedRole = value ?? 'cashier'),
+                          ),
+                          const SizedBox(height: 24),
+                          if (compact)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                cancelButton,
+                                const SizedBox(height: 10),
+                                updateButton,
+                              ],
+                            )
+                          else
+                            Row(
+                              children: [
+                                Expanded(child: cancelButton),
+                                const SizedBox(width: 12),
+                                Expanded(child: updateButton),
+                              ],
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
             );
