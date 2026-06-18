@@ -43,7 +43,7 @@ class AuthProvider extends ChangeNotifier {
       _user = current;
 
       _role = current?.role ?? '';
-      _currentUid = current?.uid ?? 'guest';
+      _currentUid = current?.id ?? 'guest';
       _ownerId = current?.effectiveAdminId ?? '';
 
       _userData = current;
@@ -104,7 +104,7 @@ class AuthProvider extends ChangeNotifier {
     _userData = user;
 
     _role = user.role;
-    _currentUid = user.uid;
+    _currentUid = user.id;
     _ownerId = user.effectiveAdminId;
   }
 

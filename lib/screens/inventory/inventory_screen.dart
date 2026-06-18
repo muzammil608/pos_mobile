@@ -13,10 +13,13 @@ import '../../core/theme/receipt_fonts.dart';
 import '../../core/theme/nova_theme.dart';
 import '../../core/utils/app_notice.dart';
 import '../../models/inventory_transaction_model.dart';
+import '../../models/pay_later_model.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../core/utils/no_animation_route.dart';
+import '../../screens/pay_later/pay_later_screen.dart';
 import '../../screens/products/products_screen.dart';
+import '../../services/pay_later_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
 import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/report_service.dart';
@@ -54,8 +57,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
         }
 
         final userEmail = auth.user?.email ?? '';
-        final userName = auth.user?.displayName ?? userEmail.split('@').first;
-        final photoUrl = auth.user?.photoURL;
+        final userName = auth.user?.name ?? userEmail.split('@').first;
+        final photoUrl = auth.user?.photoUrl;
 
         final isDesktop = AppNavigationShell.isDesktop(context);
 
@@ -722,7 +725,8 @@ class _InventoryBodyState extends State<_InventoryBody> {
       (
         List<Product>,
         List<InventoryTransaction>,
-        List<Map<String, dynamic>>
+        List<Map<String, dynamic>>,
+        List<PayLaterPerson>
       )> _future;
   StreamSubscription<List<Product>>? _productsSub;
   bool _profitExpanded = false;
@@ -731,12 +735,14 @@ class _InventoryBodyState extends State<_InventoryBody> {
       (
         List<Product>,
         List<InventoryTransaction>,
-        List<Map<String, dynamic>>
+        List<Map<String, dynamic>>,
+        List<PayLaterPerson>
       )> _loadData() async {
-    final (products, transactions, orders) = await (
+    final (products, transactions, orders, payLaterPeople) = await (
       widget.service.getProducts(),
       widget.service.getTransactions(limit: 120),
       _orderService.getOrdersList(),
+      PayLaterService(widget.service.ownerId).getPeople(),
     ).wait;
 
     return (
@@ -751,6 +757,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
             },
           )
           .toList(),
+      payLaterPeople,
     );
   }
 
@@ -787,7 +794,8 @@ class _InventoryBodyState extends State<_InventoryBody> {
         (
           List<Product>,
           List<InventoryTransaction>,
-          List<Map<String, dynamic>>
+          List<Map<String, dynamic>>,
+          List<PayLaterPerson>
         )>(
       future: _future,
       builder: (context, snapshot) {
@@ -807,7 +815,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
               child: CircularProgressIndicator(color: NovaColors.teal));
         }
 
-        final (products, transactions, orders) = snapshot.data!;
+        final (products, transactions, orders, payLaterPeople) = snapshot.data!;
         final summary = InventorySummary.fromProducts(products);
 
         final categorySet = products.map((e) => e.category.trim()).toSet();
@@ -825,6 +833,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
               products: products,
               transactions: transactions,
               orders: orders,
+              payLaterPeople: payLaterPeople,
               expanded: _profitExpanded,
               onToggle: () =>
                   setState(() => _profitExpanded = !_profitExpanded),
@@ -912,6 +921,32 @@ class _HeaderRow extends StatelessWidget {
           ),
         ),
       );
+      final payLaterButton = buildActionButton(
+        child: OutlinedButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              NoAnimationPageRoute<void>(
+                builder: (_) => const PayLaterScreen(),
+              ),
+            );
+          },
+          icon: const Icon(Icons.account_balance_wallet_rounded, size: 16),
+          label: const Text('Pay Later'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: NovaColors.teal,
+            side: const BorderSide(color: NovaColors.teal),
+            backgroundColor: NovaColors.bgPrimary,
+            textStyle:
+                const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ).copyWith(
+            mouseCursor: WidgetStateProperty.all(SystemMouseCursors.click),
+          ),
+        ),
+      );
       final addProductButton = buildActionButton(
         child: FilledButton.icon(
           onPressed: () {
@@ -948,6 +983,8 @@ class _HeaderRow extends StatelessWidget {
               children: [
                 reportButton,
                 const SizedBox(height: 8),
+                payLaterButton,
+                const SizedBox(height: 8),
                 addProductButton,
               ],
             )
@@ -955,6 +992,8 @@ class _HeaderRow extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 reportButton,
+                const SizedBox(width: 8),
+                payLaterButton,
                 const SizedBox(width: 8),
                 addProductButton,
               ],
@@ -1019,7 +1058,7 @@ class _InventoryOrdersReportScreenState
   ) {
     final names = <String, String>{};
     final adminEmail = auth.user?.email ?? '';
-    final adminName = (auth.user?.displayName ?? '').trim();
+    final adminName = (auth.user?.name ?? '').trim();
     if (auth.currentUid.isNotEmpty && auth.currentUid != 'guest') {
       names[auth.currentUid] =
           adminName.isNotEmpty ? adminName : adminEmail.split('@').first;
@@ -1126,8 +1165,8 @@ class _InventoryOrdersReportScreenState
         }
 
         final userEmail = auth.user?.email ?? '';
-        final userName = auth.user?.displayName ?? userEmail.split('@').first;
-        final photoUrl = auth.user?.photoURL;
+        final userName = auth.user?.name ?? userEmail.split('@').first;
+        final photoUrl = auth.user?.photoUrl;
 
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
@@ -2368,6 +2407,7 @@ class _ProfitExpansionPanel extends StatelessWidget {
     required this.products,
     required this.transactions,
     required this.orders,
+    required this.payLaterPeople,
     required this.expanded,
     required this.onToggle,
   });
@@ -2375,6 +2415,7 @@ class _ProfitExpansionPanel extends StatelessWidget {
   final List<Product> products;
   final List<InventoryTransaction> transactions;
   final List<Map<String, dynamic>> orders;
+  final List<PayLaterPerson> payLaterPeople;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -2395,7 +2436,8 @@ class _ProfitExpansionPanel extends StatelessWidget {
           (soldQtyByProduct[tx.productId] ?? 0) + tx.quantity;
     }
 
-    final orderProfitByProduct = _orderProfitByProduct(orders, cutoff);
+    final orderProfitByProduct =
+        _orderProfitByProduct(orders, cutoff, payLaterPeople);
     final hasActualOrderProfit = orderProfitByProduct.isNotEmpty;
     final productsWithCost = products.where((p) => p.purchasePrice > 0).length;
     final saleValue = hasActualOrderProfit
@@ -2493,7 +2535,7 @@ class _ProfitExpansionPanel extends StatelessWidget {
                           expanded
                               ? 'Sales margin ${margin.toStringAsFixed(1)}%'
                               : hasActualOrderProfit
-                                  ? 'Actual profit from POS orders'
+                                  ? 'Collected profit from paid and khata orders'
                                   : 'Estimated from stock sale records',
                           style: const TextStyle(
                               color: NovaColors.textSecondary, fontSize: 12),
@@ -2674,10 +2716,15 @@ class _ProductProfitSummary {
 Map<String, _ProductProfitSummary> _orderProfitByProduct(
   List<Map<String, dynamic>> orders,
   DateTime cutoff,
+  List<PayLaterPerson> payLaterPeople,
 ) {
   final result = <String, _ProductProfitSummary>{};
 
   for (final order in orders) {
+    final paymentMethod = order['paymentMethod']?.toString() ?? 'cash';
+    final paidRatio = _orderPaidRatio(order, paymentMethod, payLaterPeople);
+    if (paidRatio <= 0) continue;
+
     final createdAt =
         _readOrderDate(order['createdAtDate'] ?? order['createdAt']);
     if (createdAt == null || !createdAt.toLocal().isAfter(cutoff)) continue;
@@ -2693,14 +2740,18 @@ Map<String, _ProductProfitSummary> _orderProfitByProduct(
 
       final qty = _readInt(item['qty'] ?? item['quantity']) ?? 1;
       final unitPrice = _readDouble(item['unitPrice'] ?? item['price']);
-      final lineTotal = item['lineTotal'] == null
+      final rawLineTotal = item['lineTotal'] == null
           ? unitPrice * qty
           : _readDouble(item['lineTotal']);
+      final lineTotal = rawLineTotal * paidRatio;
       final purchasePrice = _readDouble(item['purchasePrice']);
-      final fallbackProfit = lineTotal - (purchasePrice * qty);
-      final lineProfit = item['lineProfit'] == null
+      final rawPurchaseValue = purchasePrice * qty;
+      final purchaseValue = rawPurchaseValue * paidRatio;
+      final fallbackProfit = rawLineTotal - rawPurchaseValue;
+      final rawLineProfit = item['lineProfit'] == null
           ? fallbackProfit
           : _readDouble(item['lineProfit']);
+      final lineProfit = rawLineProfit * paidRatio;
 
       final current = result[productId] ??
           _ProductProfitSummary(
@@ -2709,13 +2760,78 @@ Map<String, _ProductProfitSummary> _orderProfitByProduct(
           );
       current.quantity += qty;
       current.saleValue += lineTotal;
-      current.purchaseValue += purchasePrice * qty;
+      current.purchaseValue += purchaseValue;
       current.profit += lineProfit;
       result[productId] = current;
     }
   }
 
   return result;
+}
+
+double _orderPaidRatio(
+  Map<String, dynamic> order,
+  String paymentMethod,
+  List<PayLaterPerson> payLaterPeople,
+) {
+  if (paymentMethod == 'pay_later') {
+    return _payLaterPaidRatio(order, payLaterPeople);
+  }
+  if (paymentMethod == 'partial') {
+    final total = _readDouble(order['total']);
+    if (total <= 0) return 0;
+    final paidNow = _readDouble(order['tenderedAmount']).clamp(0.0, total);
+    final dueLater = (total - paidNow).clamp(0.0, double.infinity);
+    if (dueLater <= 0) return 1;
+    final paidLaterRatio = _payLaterPaidRatio(order, payLaterPeople);
+    return ((paidNow + (dueLater * paidLaterRatio)) / total).clamp(0.0, 1.0);
+  }
+  return 1.0;
+}
+
+double _payLaterPaidRatio(
+  Map<String, dynamic> order,
+  List<PayLaterPerson> payLaterPeople,
+) {
+  final customerName = (order['customerName']?.toString() ?? '').trim();
+  if (customerName.isEmpty) return 0;
+
+  final normalized = customerName.toLowerCase();
+  PayLaterPerson? person;
+  for (final candidate in payLaterPeople) {
+    if (candidate.name.trim().toLowerCase() == normalized) {
+      person = candidate;
+      break;
+    }
+  }
+  if (person == null || person.totalDebit <= 0) return 0;
+
+  final orderNumber = order['orderNumber']?.toString();
+  if (orderNumber == null || orderNumber.isEmpty) {
+    return (person.totalPaid / person.totalDebit).clamp(0.0, 1.0);
+  }
+
+  final debits = person.entries.where((entry) => !entry.isPayment).toList()
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  final orderDebit = debits
+      .where((entry) => entry.orderNumber == orderNumber)
+      .fold<double>(0, (sum, entry) => sum + entry.amount);
+  if (orderDebit <= 0) {
+    return (person.totalPaid / person.totalDebit).clamp(0.0, 1.0);
+  }
+
+  var remainingPaid = person.totalPaid;
+  var paidForOrder = 0.0;
+  for (final debit in debits) {
+    if (remainingPaid <= 0) break;
+    final paidForDebit = remainingPaid.clamp(0.0, debit.amount).toDouble();
+    if (debit.orderNumber == orderNumber) {
+      paidForOrder += paidForDebit;
+    }
+    remainingPaid -= paidForDebit;
+  }
+
+  return (paidForOrder / orderDebit).clamp(0.0, 1.0);
 }
 
 DateTime? _readOrderDate(dynamic raw) {

@@ -53,3 +53,4 @@ app.*.map.json
 /pocketbase
 /lib/services/pocketbase/*
 !/lib/services/pocketbase/repair_service.dart
+/lib/services/pay_later_service.dart

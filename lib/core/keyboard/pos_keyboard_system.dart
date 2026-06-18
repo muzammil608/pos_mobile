@@ -14,6 +14,14 @@ bool get _isDesktop =>
 bool get _supportsGlobalHotkeys =>
     !kIsWeb && (Platform.isWindows || Platform.isMacOS);
 
+bool get _isEditingText {
+  final primaryFocus = FocusManager.instance.primaryFocus;
+  if (primaryFocus == null || primaryFocus.context == null) return false;
+  return primaryFocus.context!.widget is EditableText ||
+      primaryFocus.context!.findAncestorWidgetOfExactType<EditableText>() !=
+          null;
+}
+
 class FocusSearchIntent extends Intent {
   const FocusSearchIntent();
 }
@@ -108,6 +116,10 @@ class SelectPaymentMethodIntent extends Intent {
   const SelectPaymentMethodIntent(this.method);
 }
 
+class FocusCustomerPhoneIntent extends Intent {
+  const FocusCustomerPhoneIntent();
+}
+
 class PosShortcuts {
   static Map<ShortcutActivator, Intent> posScreen = {
     const SingleActivator(LogicalKeyboardKey.keyF, control: true):
@@ -133,6 +145,12 @@ class PosShortcuts {
         SelectPaymentMethodIntent('cash'),
     const SingleActivator(LogicalKeyboardKey.f8):
         SelectPaymentMethodIntent('card'),
+    const SingleActivator(LogicalKeyboardKey.f9):
+        SelectPaymentMethodIntent('pay_later'),
+    const SingleActivator(LogicalKeyboardKey.f11):
+        const FocusCustomerPhoneIntent(),
+    const SingleActivator(LogicalKeyboardKey.f12):
+        SelectPaymentMethodIntent('partial'),
   };
 
   static Map<ShortcutActivator, Intent> numpad = {
@@ -164,11 +182,17 @@ class PosShortcuts {
     const SingleActivator(LogicalKeyboardKey.enter): ConfirmItemIntent(),
     const SingleActivator(LogicalKeyboardKey.numpadEnter): ConfirmItemIntent(),
     const SingleActivator(LogicalKeyboardKey.keyE): EditItemIntent(),
-    const SingleActivator(LogicalKeyboardKey.f9): CheckoutBackIntent(),
+    const SingleActivator(LogicalKeyboardKey.f10): CheckoutBackIntent(),
     const SingleActivator(LogicalKeyboardKey.f7):
         SelectPaymentMethodIntent('cash'),
     const SingleActivator(LogicalKeyboardKey.f8):
         SelectPaymentMethodIntent('card'),
+    const SingleActivator(LogicalKeyboardKey.f9):
+        SelectPaymentMethodIntent('pay_later'),
+    const SingleActivator(LogicalKeyboardKey.f11):
+        const FocusCustomerPhoneIntent(),
+    const SingleActivator(LogicalKeyboardKey.f12):
+        SelectPaymentMethodIntent('partial'),
   };
 }
 
@@ -300,6 +324,7 @@ class PosKeyboardScope extends StatefulWidget {
   final VoidCallback? onArrowRight;
   final VoidCallback? onRefresh;
   final VoidCallback? onEscape;
+  final VoidCallback? onFocusCustomerPhone;
 
   final ValueChanged<String>? onSelectPaymentMethod;
 
@@ -324,6 +349,7 @@ class PosKeyboardScope extends StatefulWidget {
     this.onArrowRight,
     this.onRefresh,
     this.onEscape,
+    this.onFocusCustomerPhone,
     this.onSelectPaymentMethod,
   });
 
@@ -350,6 +376,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
 
     final searchBar = widget.searchBarKey?.currentState;
     final searchHasFocus = searchBar?.hasFocus ?? false;
+    final isTextEditing = _isEditingText;
 
     if (event.logicalKey == LogicalKeyboardKey.f1) {
       widget.onNewOrder?.call();
@@ -412,6 +439,21 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
       return true;
     }
 
+    if (event.logicalKey == LogicalKeyboardKey.f9) {
+      widget.onSelectPaymentMethod?.call('pay_later');
+      return true;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.f12) {
+      widget.onSelectPaymentMethod?.call('partial');
+      return true;
+    }
+
+    if (event.logicalKey == LogicalKeyboardKey.f11) {
+      widget.onFocusCustomerPhone?.call();
+      return widget.onFocusCustomerPhone != null;
+    }
+
     if (event.logicalKey == LogicalKeyboardKey.f5) {
       widget.onRefresh?.call();
       return true;
@@ -425,7 +467,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
 
     if (event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-      if (!searchHasFocus) {
+      if (!searchHasFocus && !isTextEditing) {
         widget.onConfirmFocusedItem?.call();
         return true;
       }
@@ -433,7 +475,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
     }
 
     if (event.logicalKey == LogicalKeyboardKey.delete) {
-      if (!searchHasFocus) {
+      if (!searchHasFocus && !isTextEditing) {
         widget.onDeleteFocusedItem?.call();
         return true;
       }
@@ -441,7 +483,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
     }
 
     if (event.logicalKey == LogicalKeyboardKey.keyE) {
-      if (!searchHasFocus) {
+      if (!searchHasFocus && !isTextEditing) {
         widget.onEditFocusedItem?.call();
         return true;
       }
@@ -565,7 +607,8 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
             onInvoke: (_) {
               final searchHasFocus =
                   widget.searchBarKey?.currentState?.hasFocus ?? false;
-              if (!searchHasFocus) {
+              final isTextEditing = _isEditingText;
+              if (!searchHasFocus && !isTextEditing) {
                 widget.onDeleteFocusedItem?.call();
               }
               return null;
@@ -575,7 +618,8 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
             onInvoke: (_) {
               final searchHasFocus =
                   widget.searchBarKey?.currentState?.hasFocus ?? false;
-              if (!searchHasFocus) {
+              final isTextEditing = _isEditingText;
+              if (!searchHasFocus && !isTextEditing) {
                 widget.onEditFocusedItem?.call();
               }
               return null;
@@ -595,7 +639,8 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
             onInvoke: (_) {
               final searchHasFocus =
                   widget.searchBarKey?.currentState?.hasFocus ?? false;
-              if (!searchHasFocus) {
+              final isTextEditing = _isEditingText;
+              if (!searchHasFocus && !isTextEditing) {
                 widget.onConfirmFocusedItem?.call();
               }
               return null;
@@ -614,6 +659,12 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
           SelectPaymentMethodIntent: CallbackAction<SelectPaymentMethodIntent>(
             onInvoke: (intent) {
               widget.onSelectPaymentMethod?.call(intent.method);
+              return null;
+            },
+          ),
+          FocusCustomerPhoneIntent: CallbackAction<FocusCustomerPhoneIntent>(
+            onInvoke: (_) {
+              widget.onFocusCustomerPhone?.call();
               return null;
             },
           ),
@@ -639,6 +690,7 @@ class CheckoutKeyboardScope extends StatefulWidget {
   final VoidCallback? onDeleteFocusedItem;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
+  final VoidCallback? onFocusCustomerPhone;
 
   final ValueChanged<String>? onSelectPaymentMethod;
   final bool autofocusCash;
@@ -656,6 +708,7 @@ class CheckoutKeyboardScope extends StatefulWidget {
     this.onDeleteFocusedItem,
     this.onArrowUp,
     this.onArrowDown,
+    this.onFocusCustomerPhone,
     this.onSelectPaymentMethod,
     this.autofocusCash = true,
   });
@@ -689,9 +742,8 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
     if (ModalRoute.of(context)?.isCurrent != true) return false;
 
     final logicalKey = event.logicalKey;
-    final isTextEditing =
-        FocusManager.instance.primaryFocus?.context?.widget is EditableText;
-    final isBackToPos = logicalKey == LogicalKeyboardKey.f9;
+    final isTextEditing = _isEditingText;
+    final isBackToPos = logicalKey == LogicalKeyboardKey.f10;
 
     if (isBackToPos) {
       _goBackOnce();
@@ -708,22 +760,35 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
       return true;
     }
 
-    if (logicalKey == LogicalKeyboardKey.keyE) {
+    if (logicalKey == LogicalKeyboardKey.f9) {
+      widget.onSelectPaymentMethod?.call('pay_later');
+      return true;
+    }
+
+    if (logicalKey == LogicalKeyboardKey.f12) {
+      widget.onSelectPaymentMethod?.call('partial');
+      return true;
+    }
+
+    if (logicalKey == LogicalKeyboardKey.f11) {
+      widget.onFocusCustomerPhone?.call();
+      return widget.onFocusCustomerPhone != null;
+    }
+
+    if (logicalKey == LogicalKeyboardKey.keyE && !isTextEditing) {
       widget.onEditFocusedItem?.call();
       return true;
     }
 
     if (logicalKey == LogicalKeyboardKey.arrowUp) {
-      if (FocusManager.instance.primaryFocus?.context?.widget
-          is! EditableText) {
+      if (!isTextEditing) {
         widget.onArrowUp?.call();
         return true;
       }
       return false;
     }
     if (logicalKey == LogicalKeyboardKey.arrowDown) {
-      if (FocusManager.instance.primaryFocus?.context?.widget
-          is! EditableText) {
+      if (!isTextEditing) {
         widget.onArrowDown?.call();
         return true;
       }
@@ -792,13 +857,15 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
           ),
           ConfirmItemIntent: CallbackAction<ConfirmItemIntent>(
             onInvoke: (_) {
-              widget.onConfirm?.call();
+              final isTextEditing = _isEditingText;
+              if (!isTextEditing) widget.onConfirm?.call();
               return null;
             },
           ),
           EditItemIntent: CallbackAction<EditItemIntent>(
             onInvoke: (_) {
-              if (!(widget.cashFocusNode?.hasFocus ?? false)) {
+              final isTextEditing = _isEditingText;
+              if (!isTextEditing) {
                 widget.onEditFocusedItem?.call();
               }
               return null;
@@ -806,7 +873,8 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
           ),
           DeleteItemIntent: CallbackAction<DeleteItemIntent>(
             onInvoke: (_) {
-              if (!(widget.cashFocusNode?.hasFocus ?? false)) {
+              final isTextEditing = _isEditingText;
+              if (!isTextEditing) {
                 widget.onDeleteFocusedItem?.call();
               }
               return null;
@@ -821,6 +889,12 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
           SelectPaymentMethodIntent: CallbackAction<SelectPaymentMethodIntent>(
             onInvoke: (intent) {
               widget.onSelectPaymentMethod?.call(intent.method);
+              return null;
+            },
+          ),
+          FocusCustomerPhoneIntent: CallbackAction<FocusCustomerPhoneIntent>(
+            onInvoke: (_) {
+              widget.onFocusCustomerPhone?.call();
               return null;
             },
           ),
@@ -1458,7 +1532,10 @@ class PosShortcutHelp extends StatelessWidget {
           ('0–9 / Numpad', 'Enter cash amount'),
           ('Backspace', 'Delete last digit'),
           ('Enter', 'Confirm payment'),
-          ('F9', 'Back to POS'),
+          ('F9', 'Select Pay Later'),
+          ('F10', 'Back to POS'),
+          ('F11', 'Focus mobile number'),
+          ('F12', 'Select Partial Payment'),
           ('F7', 'Select Cash payment'),
           ('F8', 'Select Card payment'),
         ]

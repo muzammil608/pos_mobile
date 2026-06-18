@@ -699,8 +699,8 @@ class _EmployeeManagerScreenState extends State<EmployeeManagerScreen> {
         }
 
         final userEmail = auth.user?.email ?? 'No Email';
-        final userName = auth.user?.displayName ?? userEmail.split('@').first;
-        final photoUrl = auth.user?.photoURL;
+        final userName = auth.user?.name ?? userEmail.split('@').first;
+        final photoUrl = auth.user?.photoUrl;
 
         final isDesktop = AppNavigationShell.isDesktop(context);
 

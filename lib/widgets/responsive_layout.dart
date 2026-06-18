@@ -2,16 +2,7 @@ import 'package:flutter/material.dart';
 
 class ResponsiveLayout {
   static const double desktopBreakpoint = 900;
-  static const double wideBreakpoint = 1200;
   static const double maxContentWidth = 1280;
-
-  static bool isDesktop(BuildContext context) {
-    return MediaQuery.sizeOf(context).width >= desktopBreakpoint;
-  }
-
-  static bool isWide(BuildContext context) {
-    return MediaQuery.sizeOf(context).width >= wideBreakpoint;
-  }
 
   static double horizontalPadding(double width) {
     if (width >= 1400) return 32;

@@ -60,18 +60,6 @@ class Product {
 
   String get imageCacheKey => '$id:$imageFilename:$updatedAt';
 
-  double get salePrice => price;
-
-  double get bargainFloor {
-    var floor = purchasePrice;
-    if (minSalePrice > floor) floor = minSalePrice;
-    if (maxDiscountPercent > 0 && price > 0) {
-      final discountFloor = price * (1 - (maxDiscountPercent / 100));
-      if (discountFloor > floor) floor = discountFloor;
-    }
-    return floor.clamp(0, price).toDouble();
-  }
-
   factory Product.fromMap(Map<String, dynamic> data, String id) {
     final rawModelCode = data['model_code'];
     final rawBrand = data['brand'];

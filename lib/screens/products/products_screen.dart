@@ -1162,8 +1162,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
         }
 
         final userEmail = auth.user?.email ?? 'No Email';
-        final userName = auth.user?.displayName ?? userEmail.split('@').first;
-        final photoUrl = auth.user?.photoURL;
+        final userName = auth.user?.name ?? userEmail.split('@').first;
+        final photoUrl = auth.user?.photoUrl;
 
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
@@ -1601,31 +1601,22 @@ class _StyledField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final IconData icon;
-  final String? hint;
   final String? prefixText;
   final String? suffixText;
-  final bool autofocus;
   final TextCapitalization textCapitalization;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
-  final void Function(String)? onChanged;
   final VoidCallback? onTap;
 
   const _StyledField({
     required this.controller,
     required this.label,
     required this.icon,
-    // ignore: unused_element_parameter
-    this.hint,
     this.prefixText,
     this.suffixText,
-    // ignore: unused_element_parameter
-    this.autofocus = false,
     this.textCapitalization = TextCapitalization.none,
     this.keyboardType,
     this.validator,
-    // ignore: unused_element_parameter
-    this.onChanged,
     this.onTap,
   });
 
@@ -1633,16 +1624,13 @@ class _StyledField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
-      autofocus: autofocus,
       textCapitalization: textCapitalization,
       keyboardType: keyboardType,
       onTap: onTap,
-      onChanged: onChanged,
       validator: validator,
       style: const TextStyle(fontSize: 14, color: CafeColors.charcoal),
       decoration: InputDecoration(
         labelText: label,
-        hintText: hint,
         prefixText: prefixText,
         suffixText: suffixText,
         labelStyle: TextStyle(
@@ -1794,7 +1782,7 @@ class _BulkBargainDialogState extends State<_BulkBargainDialog> {
                           value: _selectedIds.contains(product.id),
                           title: Text(product.name),
                           subtitle: Text(
-                            'Sale Rs ${product.salePrice.toStringAsFixed(0)}',
+                            'Sale Rs ${product.price.toStringAsFixed(0)}',
                           ),
                           onChanged: _saving
                               ? null

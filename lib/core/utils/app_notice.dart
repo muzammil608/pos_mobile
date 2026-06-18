@@ -54,9 +54,10 @@ class AppNoticeHostState extends State<AppNoticeHost> {
     required String paymentMethod,
     double change = 0,
   }) {
+    final paymentLabel = _paymentMethodLabel(paymentMethod);
     final sub = paymentMethod == 'cash' && change > 0
         ? 'Rs ${total.toStringAsFixed(0)} · Cash · Change: Rs ${change.toStringAsFixed(0)}'
-        : 'Rs ${total.toStringAsFixed(0)} · ${paymentMethod == 'cash' ? 'Cash' : 'Card'}';
+        : 'Rs ${total.toStringAsFixed(0)} · $paymentLabel';
     show(
       'Order #$orderNo placed',
       subtitle: sub,
@@ -170,51 +171,20 @@ class AppNotice {
         ),
       );
   }
+}
 
-  static void showOrderSuccess(
-    BuildContext context, {
-    required String orderNo,
-    required double total,
-    required String paymentMethod,
-    double change = 0,
-  }) {
-    final host = AppNoticeHost.of(context);
-    if (host != null) {
-      host.showOrderSuccess(
-        orderNo: orderNo,
-        total: total,
-        paymentMethod: paymentMethod,
-        change: change,
-      );
-      return;
-    }
-    final sub = paymentMethod == 'cash' && change > 0
-        ? 'Rs ${total.toStringAsFixed(0)} · Cash · Change: Rs ${change.toStringAsFixed(0)}'
-        : 'Rs ${total.toStringAsFixed(0)} · ${paymentMethod == 'cash' ? 'Cash' : 'Card'}';
-    show(context, 'Order #$orderNo placed',
-        subtitle: sub, type: AppNoticeType.success);
-  }
-
-  static void showStockWarning(BuildContext context, List<String> alerts) {
-    final host = AppNoticeHost.of(context);
-    if (host != null) {
-      host.showStockWarning(alerts);
-      return;
-    }
-    final items = alerts.take(2).join(', ');
-    final extra = alerts.length > 2 ? ' +${alerts.length - 2} more' : '';
-    show(context, 'Low stock warning',
-        subtitle: '$items$extra', type: AppNoticeType.warning);
-  }
-
-  static void showOutOfStock(BuildContext context, String details) {
-    final host = AppNoticeHost.of(context);
-    if (host != null) {
-      host.showOutOfStock(details);
-      return;
-    }
-    show(context, 'Cannot place order',
-        subtitle: details, type: AppNoticeType.error);
+String _paymentMethodLabel(String method) {
+  switch (method) {
+    case 'cash':
+      return 'Cash';
+    case 'card':
+      return 'Card';
+    case 'pay_later':
+      return 'Pay Later';
+    case 'partial':
+      return 'Partial Payment';
+    default:
+      return method;
   }
 }
 

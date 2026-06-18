@@ -51,7 +51,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
 
         final isDesktop = AppNavigationShell.isDesktop(context);
         final email = auth.user?.email ?? '';
-        final userName = auth.user?.displayName ??
+        final userName = auth.user?.name ??
             (email.contains('@') ? email.split('@').first : email);
 
         return Scaffold(
@@ -67,7 +67,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
           appBar: AppNavigationAppBar(
             title: 'Repair Desk',
             icon: Icons.build_circle_rounded,
-            photoUrl: auth.user?.photoURL,
+            photoUrl: auth.user?.photoUrl,
             userName: userName,
           ),
           floatingActionButton: FloatingActionButton.extended(

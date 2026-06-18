@@ -12,7 +12,7 @@ import '../../core/theme/nova_theme.dart';
 import '../../core/theme/cafe_colors.dart';
 import '../../core/utils/clickable_cursor.dart';
 import '../../core/utils/app_notice.dart';
-import '../../core/utils/checkout_bargain.dart';
+import '../../core/utils/pakistan_phone.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
@@ -20,6 +20,7 @@ import '../../services/printer/thermal_printer_service.dart';
 import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
 import '../../services/pocketbase/product_service.dart';
+import '../../services/pay_later_service.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/bargain_price_dialog.dart';
 import '../../widgets/receipt_dialog.dart';
@@ -58,7 +59,11 @@ Color _itemBgColor(String name) {
 }
 
 bool _cashIsInsufficient(double tendered, double total) {
-  return CheckoutBargain.isInsufficient(tendered, total);
+  return tendered < total;
+}
+
+double _cashChange(double tendered, double total) {
+  return tendered > total ? tendered - total : 0;
 }
 
 double _readCartDouble(dynamic value) {
@@ -533,7 +538,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _customerNameController = TextEditingController();
+  final TextEditingController _customerPhoneController =
+      TextEditingController();
   final TextEditingController _cashController = TextEditingController();
+  final FocusNode _customerNameFocusNode =
+      FocusNode(debugLabel: 'PosCustomerName');
+  final FocusNode _customerPhoneFocusNode =
+      FocusNode(debugLabel: 'PosCustomerPhone');
   final FocusNode _cashFocusNode = FocusNode(debugLabel: 'PosCashTendered');
   final FocusNode _checkoutShortcutFocusNode =
       FocusNode(debugLabel: 'PosCheckoutShortcuts');
@@ -553,6 +564,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   String _searchQuery = '';
   String _selectedCategory = 'All';
   String _customerName = '';
+  String _customerPhone = '';
   String _paymentMethod = 'cash';
 
   int _focusedProductIndex = -1;
@@ -649,7 +661,10 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   void dispose() {
     _searchController.dispose();
     _customerNameController.dispose();
+    _customerPhoneController.dispose();
     _cashController.dispose();
+    _customerNameFocusNode.dispose();
+    _customerPhoneFocusNode.dispose();
     _cashFocusNode.dispose();
     _checkoutShortcutFocusNode.dispose();
     _productScrollController.dispose();
@@ -814,7 +829,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   void _resetCheckoutForm() {
     _customerName = '';
+    _customerPhone = '';
     _customerNameController.clear();
+    _customerPhoneController.clear();
     _paymentMethod = 'cash';
     _tenderedAmount = 0.0;
     _cashController.clear();
@@ -961,14 +978,23 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   }
 
   void _selectPaymentMethod(String method) {
-    if (method != 'cash' && method != 'card') return;
+    if (method != 'cash' &&
+        method != 'card' &&
+        method != 'pay_later' &&
+        method != 'partial') {
+      return;
+    }
 
     setState(() {
       _checkoutKeyboardMode = true;
       _paymentMethod = method;
-      if (method != 'cash') {
+      if (method != 'cash' && method != 'partial') {
         _cashController.clear();
         _tenderedAmount = 0.0;
+      }
+      if (!_usesPayLaterLedger(method)) {
+        _customerPhone = '';
+        _customerPhoneController.clear();
       }
     });
 
@@ -976,10 +1002,43 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       if (!mounted) return;
       if (method == 'cash') {
         _cashFocusNode.requestFocus();
+      } else if (_usesPayLaterLedger(method)) {
+        _customerNameFocusNode.requestFocus();
+        _customerNameController.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _customerNameController.text.length,
+        );
       } else {
         _checkoutShortcutFocusNode.requestFocus();
       }
     });
+  }
+
+  void _focusCustomerPhone() {
+    if (!_usesPayLaterLedger(_paymentMethod)) return;
+    setState(() => _checkoutKeyboardMode = true);
+    _cashFocusNode.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _customerPhoneFocusNode.requestFocus();
+      _customerPhoneController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _customerPhoneController.text.length,
+      );
+    });
+  }
+
+  bool _usesPayLaterLedger([String? method]) {
+    final value = method ?? _paymentMethod;
+    return value == 'pay_later' || value == 'partial';
+  }
+
+  double _remainingPayLaterAmount(double total) {
+    if (_paymentMethod == 'pay_later') return total;
+    if (_paymentMethod == 'partial') {
+      return (total - _tenderedAmount).clamp(0, double.infinity).toDouble();
+    }
+    return 0;
   }
 
   Future<void> _showEditItemDialog(
@@ -1239,20 +1298,40 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       );
       return false;
     }
+    if (_usesPayLaterLedger() && _customerName.trim().isEmpty) {
+      _noticeKey.currentState?.show(
+        'Enter customer name for Pay Later.',
+        type: AppNoticeType.warning,
+      );
+      return false;
+    }
+    if (_usesPayLaterLedger() && !PakistanPhone.isValidMobile(_customerPhone)) {
+      _noticeKey.currentState?.show(
+        'Enter a valid Pakistani mobile number. ${PakistanPhone.mobileHint}',
+        type: AppNoticeType.warning,
+      );
+      return false;
+    }
+    if (_paymentMethod == 'partial' &&
+        (_tenderedAmount <= 0 || _tenderedAmount >= cart.total)) {
+      _noticeKey.currentState?.show(
+        'For Partial Payment, paid now must be more than 0 and less than total.',
+        type: AppNoticeType.warning,
+      );
+      return false;
+    }
     if (_isSubmitting) return false;
-    const checkoutDiscount = 0.0;
-    final orderTotal = _paymentMethod == 'cash'
-        ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
-        : cart.total;
+    final orderTotal = cart.total;
+    final remainingPayLater = _remainingPayLaterAmount(orderTotal);
     final changeAmount = _paymentMethod == 'cash'
-        ? CheckoutBargain.change(_tenderedAmount, cart.total)
+        ? _cashChange(_tenderedAmount, cart.total)
         : 0.0;
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
     setState(() => _isSubmitting = true);
 
     try {
-      final baseCartSnapshot = cart.items.map((item) {
+      final cartSnapshot = cart.items.map((item) {
         final qty = (item['qty'] as num?)?.toInt() ??
             (item['quantity'] as num?)?.toInt() ??
             1;
@@ -1283,10 +1362,6 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
           if (item['productId'] != null) 'productId': item['productId'],
         };
       }).toList();
-      final cartSnapshot = CheckoutBargain.applyToItems(
-        baseCartSnapshot,
-        checkoutDiscount,
-      );
 
       final stockIssueMessage = await _validateStockBeforePlace(cartSnapshot);
       if (stockIssueMessage != null) {
@@ -1300,10 +1375,25 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         status: 'ready',
         customerName: _customerName,
         paymentMethod: _paymentMethod,
-        tenderedAmount: _paymentMethod == 'cash' ? _tenderedAmount : 0.0,
+        tenderedAmount:
+            (_paymentMethod == 'cash' || _paymentMethod == 'partial')
+                ? _tenderedAmount
+                : 0.0,
         change: changeAmount,
       );
       if (!mounted) return false;
+
+      if (remainingPayLater > 0) {
+        await PayLaterService(auth.ownerId).createDebitForOrder(
+          customerName: _customerName,
+          amount: remainingPayLater,
+          phone: PakistanPhone.normalizeMobile(_customerPhone),
+          orderNumber: order.orderNumber.toString(),
+          note: _paymentMethod == 'partial'
+              ? 'POS order #${order.orderNumber} remaining balance. Paid now Rs ${_tenderedAmount.toStringAsFixed(0)}'
+              : 'POS order #${order.orderNumber}',
+        );
+      }
 
       try {
         await ThermalPrinterService.instance.printReceiptAuto(
@@ -1333,12 +1423,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         debugPrint('Printing skipped or failed on this platform: $e');
       }
 
+      final completedPaymentMethod = _paymentMethod;
       await cart.clear();
       _resetCheckoutForm();
       _noticeKey.currentState?.showOrderSuccess(
         orderNo: order.orderNumber.toString(),
         total: order.total,
-        paymentMethod: _paymentMethod,
+        paymentMethod: completedPaymentMethod,
         change: changeAmount,
       );
       _focusPosForNewOrder();
@@ -2024,8 +2115,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
         final user = auth.user!;
         final userEmail = user.email;
-        final userName = user.displayName ?? userEmail.split('@').first;
-        final photoUrl = user.photoURL;
+        final userName = user.name ?? userEmail.split('@').first;
+        final photoUrl = user.photoUrl;
 
         final isMobileUI = !AppNavigationShell.isDesktop(context);
 
@@ -2369,6 +2460,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   }
                 },
                 onSelectPaymentMethod: _selectPaymentMethod,
+                onFocusCustomerPhone: _focusCustomerPhone,
                 onInventory: _openInventory,
                 child: StreamBuilder<List<Product>>(
                   stream: _productsStream ??
@@ -2808,6 +2900,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                             TextField(
                                               controller:
                                                   _customerNameController,
+                                              focusNode: _customerNameFocusNode,
                                               onChanged: (value) => setState(
                                                 () => _customerName = value,
                                               ),
@@ -2846,13 +2939,51 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                   value: 'card',
                                                   child: Text('Card'),
                                                 ),
+                                                DropdownMenuItem(
+                                                  value: 'pay_later',
+                                                  child: Text('Pay Later'),
+                                                ),
+                                                DropdownMenuItem(
+                                                  value: 'partial',
+                                                  child:
+                                                      Text('Partial Payment'),
+                                                ),
                                               ],
                                               onChanged: (value) =>
                                                   _selectPaymentMethod(
                                                 value ?? 'cash',
                                               ),
                                             ),
-                                            if (_paymentMethod == 'cash') ...[
+                                            if (_usesPayLaterLedger()) ...[
+                                              const SizedBox(height: 10),
+                                              TextField(
+                                                controller:
+                                                    _customerPhoneController,
+                                                focusNode:
+                                                    _customerPhoneFocusNode,
+                                                keyboardType:
+                                                    TextInputType.phone,
+                                                inputFormatters: const [
+                                                  PakistanMobileInputFormatter(),
+                                                ],
+                                                onChanged: (value) => setState(
+                                                  () => _customerPhone = value,
+                                                ),
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  color: NovaColors.textPrimary,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                decoration: _fieldDecoration(
+                                                  'Mobile Number (03XXXXXXXXX)',
+                                                  icon: Icons
+                                                      .phone_iphone_rounded,
+                                                ),
+                                              ),
+                                            ],
+                                            if (_paymentMethod == 'cash' ||
+                                                _paymentMethod ==
+                                                    'partial') ...[
                                               const SizedBox(height: 10),
                                               TextField(
                                                 focusNode: _cashFocusNode,
@@ -2876,7 +3007,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                   fontWeight: FontWeight.w500,
                                                 ),
                                                 decoration: _fieldDecoration(
-                                                  'Cash Tendered',
+                                                  _paymentMethod == 'partial'
+                                                      ? 'Paid Now'
+                                                      : 'Cash Tendered',
                                                   icon: Icons.money_rounded,
                                                 ).copyWith(
                                                   prefixText: 'Rs  ',
@@ -2887,7 +3020,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                   ),
                                                 ),
                                               ),
-                                              if (_tenderedAmount > 0 &&
+                                              if (_paymentMethod == 'cash' &&
+                                                  _tenderedAmount > 0 &&
                                                   _cashIsInsufficient(
                                                     _tenderedAmount,
                                                     cart.total,
@@ -2930,18 +3064,22 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                 ),
                                                 decoration: BoxDecoration(
                                                   color: !_cashIsInsufficient(
-                                                    _tenderedAmount,
-                                                    cart.total,
-                                                  )
+                                                            _tenderedAmount,
+                                                            cart.total,
+                                                          ) ||
+                                                          _paymentMethod ==
+                                                              'partial'
                                                       ? NovaColors.tealLight
                                                       : NovaColors.dangerLight,
                                                   borderRadius:
                                                       BorderRadius.circular(10),
                                                   border: Border.all(
                                                     color: !_cashIsInsufficient(
-                                                      _tenderedAmount,
-                                                      cart.total,
-                                                    )
+                                                              _tenderedAmount,
+                                                              cart.total,
+                                                            ) ||
+                                                            _paymentMethod ==
+                                                                'partial'
                                                         ? NovaColors.teal
                                                             .withValues(
                                                             alpha: 0.3,
@@ -2964,8 +3102,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                               .change_circle_outlined,
                                                           size: 15,
                                                           color: !_cashIsInsufficient(
-                                                                  _tenderedAmount,
-                                                                  cart.total)
+                                                                      _tenderedAmount,
+                                                                      cart
+                                                                          .total) ||
+                                                                  _paymentMethod ==
+                                                                      'partial'
                                                               ? NovaColors.teal
                                                               : NovaColors
                                                                   .danger,
@@ -2973,7 +3114,10 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                         const SizedBox(
                                                             width: 6),
                                                         Text(
-                                                          'Change Due',
+                                                          _paymentMethod ==
+                                                                  'partial'
+                                                              ? 'Remaining Later'
+                                                              : 'Change Due',
                                                           style: TextStyle(
                                                             fontWeight:
                                                                 FontWeight.w500,
@@ -2985,14 +3129,20 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       ],
                                                     ),
                                                     Text(
-                                                      'Rs ${CheckoutBargain.change(_tenderedAmount, cart.total).toStringAsFixed(0)}',
+                                                      _paymentMethod ==
+                                                              'partial'
+                                                          ? 'Rs ${_remainingPayLaterAmount(cart.total).toStringAsFixed(0)}'
+                                                          : 'Rs ${_cashChange(_tenderedAmount, cart.total).toStringAsFixed(0)}',
                                                       style: TextStyle(
                                                         fontWeight:
                                                             FontWeight.w700,
                                                         fontSize: 14,
                                                         color: !_cashIsInsufficient(
-                                                                _tenderedAmount,
-                                                                cart.total)
+                                                                    _tenderedAmount,
+                                                                    cart
+                                                                        .total) ||
+                                                                _paymentMethod ==
+                                                                    'partial'
                                                             ? NovaColors.teal
                                                             : NovaColors.danger,
                                                       ),

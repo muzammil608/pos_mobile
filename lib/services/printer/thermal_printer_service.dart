@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:unified_esc_pos_printer/unified_esc_pos_printer.dart';
@@ -47,50 +46,10 @@ class ThermalPrinterService {
 
   final PrinterManager _manager = PrinterManager();
 
-  Future<void> printReceipt(
-    BuildContext context,
-    ThermalReceiptData data,
-  ) async {
-    await _printReceipt(context, data);
-  }
-
   Future<void> printReceiptAuto(
     ThermalReceiptData data,
   ) async {
     await _printReceiptAuto(data);
-  }
-
-  Future<void> _printReceipt(
-    BuildContext context,
-    ThermalReceiptData data,
-  ) async {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-
-    try {
-      final printer = await _pickPrinter(context);
-      if (printer == null) return;
-
-      await _manager.connect(printer);
-
-      final ticket = await _buildTicket(data);
-      await _manager.printTicket(ticket);
-    } on PrinterPermissionException catch (e) {
-      _showError(messenger, _friendlyPrinterMessage(e));
-    } on PrinterConnectionException catch (e) {
-      _showError(messenger, _friendlyPrinterMessage(e));
-    } on PrinterScanException catch (e) {
-      _showError(messenger, _friendlyPrinterMessage(e));
-    } on PrinterException catch (e) {
-      _showError(messenger, _friendlyPrinterMessage(e));
-    } catch (e) {
-      _showError(messenger, _friendlyPrinterMessage(e));
-    } finally {
-      try {
-        if (_manager.isConnected) {
-          await _manager.disconnect();
-        }
-      } catch (_) {}
-    }
   }
 
   Future<void> _printReceiptAuto(ThermalReceiptData data) async {
@@ -109,71 +68,6 @@ class ThermalPrinterService {
         }
       } catch (_) {}
     }
-  }
-
-  Future<PrinterDevice?> _pickPrinter(BuildContext context) async {
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Thermal printing is not supported on the web.')),
-      );
-      return null;
-    }
-
-    final printers = await _manager.scanPrinters(
-      timeout: const Duration(seconds: 2),
-      types: _supportedScanTypes(),
-    );
-
-    if (!context.mounted) return null;
-
-    if (printers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_noPrinterMessage())),
-      );
-      return null;
-    }
-
-    final supportedPrinters =
-        printers.where(_isSupportedPrinterDevice).toList(growable: false);
-
-    if (supportedPrinters.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_unsupportedPrinterMessage(printers))),
-      );
-      return null;
-    }
-
-    if (supportedPrinters.length == 1) {
-      return supportedPrinters.first;
-    }
-
-    return showDialog<PrinterDevice>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Select thermal printer'),
-          content: SizedBox(
-            width: 420,
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: supportedPrinters.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final printer = supportedPrinters[index];
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(_iconFor(printer)),
-                  title: Text(printer.name),
-                  subtitle: Text(_subtitleFor(printer)),
-                  onTap: () => Navigator.pop(dialogContext, printer),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Future<PrinterDevice?> _pickPrinterAuto() async {
@@ -330,6 +224,29 @@ class ThermalPrinterService {
           style: const PrintTextStyle(bold: true),
         ),
       ]);
+    } else if (data.paymentMethod == 'partial') {
+      final dueLater = (data.total - data.cash).clamp(0, double.infinity);
+      ticket.row([
+        PrintColumn(text: 'Paid Now', flex: 1),
+        PrintColumn(
+          text: 'Rs ${data.cash.toStringAsFixed(2)}',
+          flex: 1,
+          align: PrintAlign.right,
+        ),
+      ]);
+      ticket.row([
+        PrintColumn(
+          text: 'DUE LATER',
+          flex: 1,
+          style: PrintTextStyle(bold: true),
+        ),
+        PrintColumn(
+          text: 'Rs ${dueLater.toStringAsFixed(2)}',
+          flex: 1,
+          align: PrintAlign.right,
+          style: const PrintTextStyle(bold: true),
+        ),
+      ]);
     }
 
     ticket.feed(1);
@@ -357,26 +274,6 @@ class ThermalPrinterService {
     }
   }
 
-  IconData _iconFor(PrinterDevice device) {
-    return switch (device) {
-      NetworkPrinterDevice() => Icons.wifi,
-      BlePrinterDevice() => Icons.bluetooth,
-      BluetoothPrinterDevice() => Icons.bluetooth_audio,
-      UsbPrinterDevice() => Icons.usb,
-      _ => Icons.print_rounded,
-    };
-  }
-
-  String _subtitleFor(PrinterDevice device) {
-    return switch (device) {
-      NetworkPrinterDevice(host: final h, port: final p) => 'TCP $h:$p',
-      BlePrinterDevice(deviceId: final id) => 'BLE $id',
-      BluetoothPrinterDevice(address: final addr) => 'BT $addr',
-      UsbPrinterDevice(identifier: final id) => 'USB $id',
-      _ => device.connectionType.name,
-    };
-  }
-
   bool _isSupportedPrinterDevice(PrinterDevice device) {
     if (kIsWeb) return false;
 
@@ -398,41 +295,6 @@ class ThermalPrinterService {
     }
 
     return true;
-  }
-
-  String _friendlyPrinterMessage(Object error) {
-    final text = error.toString();
-    final lower = text.toLowerCase();
-
-    if (lower.contains('permission denied')) {
-      return 'Thermal printer access was denied by the OS. '
-          'On Linux, make sure the printer is reachable through a valid '
-          'device like /dev/ttyUSB0 or /dev/ttyACM0, and that your user has '
-          'permission to open it.';
-    }
-
-    if (lower.contains('failed to open serial port')) {
-      return 'The app found a serial port, but could not open it. '
-          'That usually means the selected device is not a thermal printer or '
-          'Linux does not allow access to that port. Try a network printer or '
-          'a USB printer exposed as ttyUSB*/ttyACM*.';
-    }
-
-    if (lower.contains('no thermal printers found')) {
-      return 'No thermal printer was discovered. Check that the printer is '
-          'powered on, connected, and discoverable.';
-    }
-
-    if (error is PrinterException && error.cause != null) {
-      return '${error.message}\n\nDetails: ${error.cause}';
-    }
-
-    return 'Thermal print failed: $error';
-  }
-
-  String _noPrinterMessage() {
-    return 'No thermal printers found. Make sure the printer is powered on '
-        'and connected before trying again.';
   }
 
   Set<PrinterConnectionType> _supportedScanTypes() {
@@ -467,17 +329,5 @@ class ThermalPrinterService {
       PrinterConnectionType.network,
       PrinterConnectionType.ble,
     };
-  }
-
-  String _unsupportedPrinterMessage(List<PrinterDevice> printers) {
-    final names = printers.map((p) => p.name).join(', ');
-    return 'The app found printer-like serial devices, but none look like a '
-        'supported thermal printer on this desktop. Detected: $names. '
-        'If you are on Linux, use a real USB printer exposed as ttyUSB*/'
-        'ttyACM* or a network printer.';
-  }
-
-  void _showError(ScaffoldMessengerState? messenger, String message) {
-    messenger?.showSnackBar(SnackBar(content: Text(message)));
   }
 }

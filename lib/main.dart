@@ -83,10 +83,6 @@ class AppEntry extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
-    debugPrint(
-      'MAIN: roleLoaded=${auth.isRoleLoaded}, user=${auth.user?.id}',
-    );
-
     if (!auth.isRoleLoaded) {
       return const Scaffold(
         body: Center(

@@ -140,9 +140,9 @@ class AppNavigationDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = auth.user;
     final userEmail = user?.email ?? 'No Email';
-    final userName = user?.displayName ??
+    final userName = user?.name ??
         (userEmail.contains('@') ? userEmail.split('@').first : userEmail);
-    final photoUrl = user?.photoURL;
+    final photoUrl = user?.photoUrl;
 
     final navItems = [
       if (auth.isAdmin || auth.isCashier)
@@ -636,10 +636,13 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
   bool _handleKeyboard(KeyEvent event) {
     if (!mounted || event is! KeyDownEvent) return false;
     if (ModalRoute.of(context)?.isCurrent != true) return false;
-    if (event.logicalKey != LogicalKeyboardKey.f9) return false;
 
-    _goToOrderStation();
-    return true;
+    if (event.logicalKey == LogicalKeyboardKey.f10) {
+      _goToOrderStation();
+      return true;
+    }
+
+    return false;
   }
 
   Future<void> _goToOrderStation() async {

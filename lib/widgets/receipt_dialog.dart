@@ -235,6 +235,12 @@ class ReceiptDialog extends StatelessWidget {
                 if (paymentMethod == 'cash') ...[
                   _pdfAmountRow('Cash', cash),
                   _pdfAmountRow('CHANGE', change),
+                ] else if (paymentMethod == 'partial') ...[
+                  _pdfAmountRow('Paid Now', cash),
+                  _pdfAmountRow(
+                    'DUE LATER',
+                    (total - cash).clamp(0, double.infinity).toDouble(),
+                  ),
                 ],
                 pw.SizedBox(height: 12),
                 pw.Center(
@@ -546,6 +552,13 @@ class ReceiptWidget extends StatelessWidget {
           if (paymentMethod == 'cash') ...[
             _amountLine('Cash', cash),
             _amountLine('CHANGE', change),
+            const SizedBox(height: 12),
+          ] else if (paymentMethod == 'partial') ...[
+            _amountLine('Paid Now', cash),
+            _amountLine(
+              'DUE LATER',
+              (total - cash).clamp(0, double.infinity).toDouble(),
+            ),
             const SizedBox(height: 12),
           ],
           Text(

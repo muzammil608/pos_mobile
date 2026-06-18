@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 
 class CafeColors {
   static const Color flame = Color(0xFF534AB7);
-  static const Color amber = Color(0xFFBA7517);
   static const Color espresso = Color(0xFF111118);
-  static const Color latte = Color(0xFFF0F0F2);
   static const Color steam = Color(0xFFFFFFFF);
   static const Color creme = Color(0xFFEEEDFE);
   static const Color olive = Color(0xFF1D9E75);
@@ -12,16 +10,6 @@ class CafeColors {
   static const Color charcoal = Color(0xFF111118);
 
   static const LinearGradient headerGradient = LinearGradient(
-    colors: [
-      Color(0xFF534AB7), // NovaColors.violet
-      Color(0xFF3C3489), // NovaColors.violetDeep
-      Color(0xFF085041), // NovaColors.tealDeep
-    ],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  static const LinearGradient bottomBarGradient = LinearGradient(
     colors: [
       Color(0xFF534AB7), // NovaColors.violet
       Color(0xFF3C3489), // NovaColors.violetDeep

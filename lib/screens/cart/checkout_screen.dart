@@ -4,34 +4,18 @@ import 'package:provider/provider.dart';
 import '../../core/keyboard/pos_keyboard_system.dart';
 import '../../core/theme/nova_theme.dart';
 import '../../core/utils/app_notice.dart';
-import '../../core/utils/checkout_bargain.dart';
+import '../../core/utils/pakistan_phone.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
 import '../../services/printer/thermal_printer_service.dart';
 import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
 import '../../services/pocketbase/product_service.dart';
+import '../../services/pay_later_service.dart';
 import '../../models/product_model.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/responsive_layout.dart';
 import 'product_list_bottom_sheet.dart';
-
-String itemEmoji(String name) {
-  final n = name.toLowerCase();
-  if (n.contains('coffee') || n.contains('espresso') || n.contains('latte')) {
-    return '☕';
-  }
-  if (n.contains('juice') || n.contains('cold') || n.contains('drink')) {
-    return '🧃';
-  }
-  if (n.contains('burger') || n.contains('sandwich')) return '🥪';
-  if (n.contains('pizza')) return '🍕';
-  if (n.contains('cake') || n.contains('dessert') || n.contains('sweet')) {
-    return '🍰';
-  }
-  if (n.contains('salad')) return '🥗';
-  return '🍴';
-}
 
 class _CartActionOption {
   final String value;
@@ -218,19 +202,12 @@ class _EditQuantityDialogState extends State<_EditQuantityDialog> {
   }
 }
 
-Color itemBgColor(String name) {
-  const colors = [
-    NovaColors.violetLight,
-    NovaColors.tealLight,
-    NovaColors.amberLight,
-    Color(0xFFFFEEF3),
-    Color(0xFFE8F4FD),
-  ];
-  return colors[name.codeUnitAt(0) % colors.length];
+bool _cashIsInsufficient(double tendered, double total) {
+  return tendered < total;
 }
 
-bool _cashIsInsufficient(double tendered, double total) {
-  return CheckoutBargain.isInsufficient(tendered, total);
+double _cashChange(double tendered, double total) {
+  return tendered > total ? tendered - total : 0;
 }
 
 class CheckoutScreen extends StatefulWidget {
@@ -268,6 +245,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   String _customerName = '';
+  String _customerPhone = '';
   String _paymentMethod = 'cash';
   double _tenderedAmount = 0.0;
   bool _isSubmitting = false;
@@ -278,9 +256,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _editDialogOpen = false;
 
   final FocusNode _cashFocus = FocusNode();
+  final FocusNode _customerNameFocus =
+      FocusNode(debugLabel: 'CheckoutCustomerName');
+  final FocusNode _customerPhoneFocus =
+      FocusNode(debugLabel: 'CheckoutCustomerPhone');
   final FocusNode _checkoutShortcutFocus =
       FocusNode(debugLabel: 'CheckoutShortcuts');
   final TextEditingController _cashController = TextEditingController();
+  final TextEditingController _customerPhoneController =
+      TextEditingController();
   final GlobalKey<AppNoticeHostState> _noticeKey =
       GlobalKey<AppNoticeHostState>();
   final Map<String, GlobalKey> _cartItemMenuKeys = {};
@@ -310,23 +294,69 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
+  void _focusCustomerName() {
+    _cashFocus.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _customerNameFocus.requestFocus();
+    });
+  }
+
+  void _focusCustomerPhone() {
+    if (!_usesPayLaterLedger(_paymentMethod)) return;
+    _cashFocus.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _customerPhoneFocus.requestFocus();
+      _customerPhoneController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _customerPhoneController.text.length,
+      );
+    });
+  }
+
   void _selectPaymentMethod(String method) {
-    if (method != 'cash' && method != 'card') return;
+    if (method != 'cash' &&
+        method != 'card' &&
+        method != 'pay_later' &&
+        method != 'partial') {
+      return;
+    }
 
     setState(() {
       _paymentMethod = method;
-      if (method != 'cash') {
+      if (method != 'cash' && method != 'partial') {
         _cashController.clear();
         _tenderedAmount = 0.0;
+      }
+      if (!_usesPayLaterLedger(method)) {
+        _customerPhone = '';
+        _customerPhoneController.clear();
       }
     });
 
     if (method == 'cash') {
       _focusCashTendered();
+    } else if (_usesPayLaterLedger(method)) {
+      _cashFocus.unfocus();
+      _focusCustomerName();
     } else {
       _cashFocus.unfocus();
       _focusCheckoutShortcuts();
     }
+  }
+
+  bool _usesPayLaterLedger([String? method]) {
+    final value = method ?? _paymentMethod;
+    return value == 'pay_later' || value == 'partial';
+  }
+
+  double _remainingPayLaterAmount(double total) {
+    if (_paymentMethod == 'pay_later') return total;
+    if (_paymentMethod == 'partial') {
+      return (total - _tenderedAmount).clamp(0, double.infinity).toDouble();
+    }
+    return 0;
   }
 
   int _safeCartIndex(CartProvider cart) {
@@ -523,8 +553,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void dispose() {
     _cashFocus.removeListener(_onCashFocusChange);
     _cashFocus.dispose();
+    _customerNameFocus.dispose();
+    _customerPhoneFocus.dispose();
     _checkoutShortcutFocus.dispose();
     _cashController.dispose();
+    _customerPhoneController.dispose();
     super.dispose();
   }
 
@@ -538,23 +571,43 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
       return;
     }
+    if (_usesPayLaterLedger() && _customerName.trim().isEmpty) {
+      _noticeKey.currentState?.show(
+        'Enter customer name for Pay Later.',
+        type: AppNoticeType.warning,
+      );
+      return;
+    }
+    if (_usesPayLaterLedger() && !PakistanPhone.isValidMobile(_customerPhone)) {
+      _noticeKey.currentState?.show(
+        'Enter a valid Pakistani mobile number. ${PakistanPhone.mobileHint}',
+        type: AppNoticeType.warning,
+      );
+      return;
+    }
+    if (_paymentMethod == 'partial' &&
+        (_tenderedAmount <= 0 || _tenderedAmount >= cart.total)) {
+      _noticeKey.currentState?.show(
+        'For Partial Payment, paid now must be more than 0 and less than total.',
+        type: AppNoticeType.warning,
+      );
+      return;
+    }
     if (_isSubmitting) return;
 
     _noticeKey.currentState?.clear();
 
-    const checkoutDiscount = 0.0;
-    final orderTotal = _paymentMethod == 'cash'
-        ? CheckoutBargain.orderTotal(_tenderedAmount, cart.total)
-        : cart.total;
+    final orderTotal = cart.total;
+    final remainingPayLater = _remainingPayLaterAmount(orderTotal);
     final changeAmount = _paymentMethod == 'cash'
-        ? CheckoutBargain.change(_tenderedAmount, cart.total)
+        ? _cashChange(_tenderedAmount, cart.total)
         : 0.0;
     final auth = Provider.of<AuthProvider>(context, listen: false);
 
     setState(() => _isSubmitting = true);
 
     try {
-      final baseCartSnapshot = cart.items.map((item) {
+      final cartSnapshot = cart.items.map((item) {
         final qty = (item['qty'] as num?)?.toInt() ??
             (item['quantity'] as num?)?.toInt() ??
             1;
@@ -585,10 +638,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           if (item['productId'] != null) 'productId': item['productId'],
         };
       }).toList();
-      final cartSnapshot = CheckoutBargain.applyToItems(
-        baseCartSnapshot,
-        checkoutDiscount,
-      );
 
       final stockIssueMessage = await _validateStockBeforePlace(cartSnapshot);
       if (stockIssueMessage != null) {
@@ -604,10 +653,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         status: 'ready',
         customerName: _customerName,
         paymentMethod: _paymentMethod,
-        tenderedAmount: _paymentMethod == 'cash' ? _tenderedAmount : 0.0,
+        tenderedAmount:
+            (_paymentMethod == 'cash' || _paymentMethod == 'partial')
+                ? _tenderedAmount
+                : 0.0,
         change: changeAmount,
       );
       if (!context.mounted) return;
+
+      if (remainingPayLater > 0) {
+        await PayLaterService(auth.ownerId).createDebitForOrder(
+          customerName: _customerName,
+          amount: remainingPayLater,
+          phone: PakistanPhone.normalizeMobile(_customerPhone),
+          orderNumber: order.orderNumber.toString(),
+          note: _paymentMethod == 'partial'
+              ? 'Checkout order #${order.orderNumber} remaining balance. Paid now Rs ${_tenderedAmount.toStringAsFixed(0)}'
+              : 'Checkout order #${order.orderNumber}',
+        );
+      }
 
       try {
         await ThermalPrinterService.instance.printReceiptAuto(
@@ -782,8 +846,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
 
       final userEmail = auth.user?.email ?? 'No Email';
-      final userName = auth.user?.displayName ?? userEmail.split('@').first;
-      final photoUrl = auth.user?.photoURL;
+      final userName = auth.user?.name ?? userEmail.split('@').first;
+      final photoUrl = auth.user?.photoUrl;
 
       return Scaffold(
         backgroundColor: NovaColors.bgTertiary,
@@ -829,6 +893,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     onArrowUp: () => _moveFocusedCartItem(cart, -1),
                     onArrowDown: () => _moveFocusedCartItem(cart, 1),
                     onSelectPaymentMethod: _selectPaymentMethod,
+                    onFocusCustomerPhone: _focusCustomerPhone,
                     child: AppNavigationShell(
                       auth: auth,
                       currentRoute: '/checkout',
@@ -911,6 +976,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             child: Column(
                               children: [
                                 TextField(
+                                  focusNode: _customerNameFocus,
                                   onChanged: (value) => _customerName = value,
                                   decoration: _fieldDecoration('Customer Name',
                                       icon: Icons.person_outline_rounded),
@@ -926,11 +992,37 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                         value: 'cash', child: Text('Cash')),
                                     DropdownMenuItem(
                                         value: 'card', child: Text('Card')),
+                                    DropdownMenuItem(
+                                      value: 'pay_later',
+                                      child: Text('Pay Later'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'partial',
+                                      child: Text('Partial Payment'),
+                                    ),
                                   ],
                                   onChanged: (value) =>
                                       _selectPaymentMethod(value ?? 'cash'),
                                 ),
-                                if (_paymentMethod == 'cash') ...[
+                                if (_usesPayLaterLedger()) ...[
+                                  const SizedBox(height: 10),
+                                  TextField(
+                                    controller: _customerPhoneController,
+                                    focusNode: _customerPhoneFocus,
+                                    keyboardType: TextInputType.phone,
+                                    inputFormatters: const [
+                                      PakistanMobileInputFormatter(),
+                                    ],
+                                    onChanged: (value) =>
+                                        _customerPhone = value,
+                                    decoration: _fieldDecoration(
+                                      'Mobile Number (03XXXXXXXXX)',
+                                      icon: Icons.phone_iphone_rounded,
+                                    ),
+                                  ),
+                                ],
+                                if (_paymentMethod == 'cash' ||
+                                    _paymentMethod == 'partial') ...[
                                   const SizedBox(height: 10),
                                   TextField(
                                     focusNode: _cashFocus,
@@ -949,7 +1041,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       fontWeight: FontWeight.w500,
                                     ),
                                     decoration: _fieldDecoration(
-                                      'Cash Tendered',
+                                      _paymentMethod == 'partial'
+                                          ? 'Paid Now'
+                                          : 'Cash Tendered',
                                       icon: Icons.money_rounded,
                                     ).copyWith(
                                       prefixText: 'Rs  ',
@@ -959,7 +1053,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                       ),
                                     ),
                                   ),
-                                  if (_tenderedAmount > 0 &&
+                                  if (_paymentMethod == 'cash' &&
+                                      _tenderedAmount > 0 &&
                                       _cashIsInsufficient(
                                           _tenderedAmount, cart.total))
                                     Padding(
@@ -990,13 +1085,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                         horizontal: 14, vertical: 10),
                                     decoration: BoxDecoration(
                                       color: !_cashIsInsufficient(
-                                              _tenderedAmount, cart.total)
+                                                  _tenderedAmount,
+                                                  cart.total) ||
+                                              _paymentMethod == 'partial'
                                           ? NovaColors.tealLight
                                           : NovaColors.dangerLight,
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: !_cashIsInsufficient(
-                                                _tenderedAmount, cart.total)
+                                                    _tenderedAmount,
+                                                    cart.total) ||
+                                                _paymentMethod == 'partial'
                                             ? NovaColors.teal
                                                 .withValues(alpha: 0.3)
                                             : NovaColors.danger
@@ -1014,14 +1113,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                               Icons.change_circle_outlined,
                                               size: 15,
                                               color: !_cashIsInsufficient(
-                                                      _tenderedAmount,
-                                                      cart.total)
+                                                          _tenderedAmount,
+                                                          cart.total) ||
+                                                      _paymentMethod ==
+                                                          'partial'
                                                   ? NovaColors.teal
                                                   : NovaColors.danger,
                                             ),
                                             const SizedBox(width: 6),
                                             Text(
-                                              'Change Due',
+                                              _paymentMethod == 'partial'
+                                                  ? 'Remaining Later'
+                                                  : 'Change Due',
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w500,
                                                 fontSize: 13,
@@ -1031,12 +1134,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                                           ],
                                         ),
                                         Text(
-                                          'Rs ${CheckoutBargain.change(_tenderedAmount, cart.total).toStringAsFixed(0)}',
+                                          _paymentMethod == 'partial'
+                                              ? 'Rs ${_remainingPayLaterAmount(cart.total).toStringAsFixed(0)}'
+                                              : 'Rs ${_cashChange(_tenderedAmount, cart.total).toStringAsFixed(0)}',
                                           style: TextStyle(
                                             fontWeight: FontWeight.w700,
                                             fontSize: 14,
                                             color: !_cashIsInsufficient(
-                                                    _tenderedAmount, cart.total)
+                                                        _tenderedAmount,
+                                                        cart.total) ||
+                                                    _paymentMethod == 'partial'
                                                 ? NovaColors.teal
                                                 : NovaColors.danger,
                                           ),

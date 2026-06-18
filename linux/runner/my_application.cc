@@ -17,6 +17,13 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  GtkSettings* settings = gtk_settings_get_default();
+  if (settings != nullptr) {
+    // F10 is used by the POS app, so prevent GTK from treating it as the
+    // default menu-bar accelerator before Flutter receives the key event.
+    g_object_set(settings, "gtk-menu-bar-accel", nullptr, nullptr);
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 

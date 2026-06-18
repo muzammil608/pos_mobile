@@ -22,17 +22,6 @@ class CartProvider with ChangeNotifier {
         },
       );
 
-  double get totalProfit => _items.fold(
-        0.0,
-        (sum, item) {
-          final qty = (item['qty'] as num?)?.toDouble() ?? 1.0;
-          final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-          final purchasePrice =
-              (item['purchasePrice'] as num?)?.toDouble() ?? 0.0;
-          return sum + ((price - purchasePrice) * qty);
-        },
-      );
-
   void _safeNotify() {
     if (!_disposed) {
       notifyListeners();

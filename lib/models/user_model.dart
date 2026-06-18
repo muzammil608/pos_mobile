@@ -19,10 +19,6 @@ class UserModel {
 
   String get effectiveAdminId => role == 'admin' ? id : (adminId ?? id);
 
-  String get uid => id;
-  String? get displayName => name;
-  String? get photoURL => photoUrl;
-
   factory UserModel.fromMap(Map<String, dynamic> data, String id) {
     return UserModel(
       id: id,
