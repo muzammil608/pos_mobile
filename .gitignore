@@ -48,6 +48,8 @@ app.*.map.json
 #pb
 /pocketbase/
 /pb_data/
+/pb_hooks/
+/pb_migrations/
 /pocketbase.db
 /pocketbase_0.28.4_linux_amd64.zip
 /devtools_options.yaml
