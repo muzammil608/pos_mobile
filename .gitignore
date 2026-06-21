@@ -54,6 +54,4 @@ app.*.map.json
 /pocketbase_0.28.4_linux_amd64.zip
 /devtools_options.yaml
 /pocketbase
-/lib/services/pocketbase/*
-!/lib/services/pocketbase/repair_service.dart
-/lib/services/pay_later_service.dart
+/lib/services/
