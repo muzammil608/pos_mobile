@@ -728,13 +728,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   }
 
   void _onConfirmFocusedItem() {
-    final cart = Provider.of<CartProvider>(context, listen: false);
-
     if (_isCheckoutKeyboardActive) {
-      _placeOrder(context, cart).then((success) {
-        if (!mounted || !success) return;
-        _focusPosForNewOrder();
-      });
+      _submitCheckoutOrder();
       return;
     }
 
@@ -744,6 +739,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
     }
     final product = _lastFilteredProducts[_focusedProductIndex];
     _addProductWithQtyDialog(product);
+  }
+
+  Future<void> _submitCheckoutOrder() async {
+    final cart = Provider.of<CartProvider>(context, listen: false);
+    final success = await _placeOrder(context, cart);
+    if (!mounted || !success) return;
+    _focusPosForNewOrder();
   }
 
   void _onDeleteFocusedItem() {
@@ -2904,6 +2906,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                               onChanged: (value) => setState(
                                                 () => _customerName = value,
                                               ),
+                                              onSubmitted: (_) {
+                                                _submitCheckoutOrder();
+                                              },
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 color: NovaColors.textPrimary,
@@ -2969,6 +2974,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                 onChanged: (value) => setState(
                                                   () => _customerPhone = value,
                                                 ),
+                                                onSubmitted: (_) {
+                                                  _submitCheckoutOrder();
+                                                },
                                                 style: const TextStyle(
                                                   fontSize: 13,
                                                   color: NovaColors.textPrimary,
@@ -3001,6 +3009,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                       double.tryParse(value) ??
                                                           0.0;
                                                 }),
+                                                onSubmitted: (_) {
+                                                  _submitCheckoutOrder();
+                                                },
                                                 style: const TextStyle(
                                                   fontSize: 13,
                                                   color: NovaColors.textPrimary,

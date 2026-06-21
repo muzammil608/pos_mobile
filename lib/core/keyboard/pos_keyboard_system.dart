@@ -467,7 +467,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
 
     if (event.logicalKey == LogicalKeyboardKey.enter ||
         event.logicalKey == LogicalKeyboardKey.numpadEnter) {
-      if (!searchHasFocus && !isTextEditing) {
+      if (!searchHasFocus) {
         widget.onConfirmFocusedItem?.call();
         return true;
       }
@@ -639,8 +639,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
             onInvoke: (_) {
               final searchHasFocus =
                   widget.searchBarKey?.currentState?.hasFocus ?? false;
-              final isTextEditing = _isEditingText;
-              if (!searchHasFocus && !isTextEditing) {
+              if (!searchHasFocus) {
                 widget.onConfirmFocusedItem?.call();
               }
               return null;
@@ -775,6 +774,12 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
       return widget.onFocusCustomerPhone != null;
     }
 
+    if (logicalKey == LogicalKeyboardKey.enter ||
+        logicalKey == LogicalKeyboardKey.numpadEnter) {
+      widget.onConfirm?.call();
+      return true;
+    }
+
     if (logicalKey == LogicalKeyboardKey.keyE && !isTextEditing) {
       widget.onEditFocusedItem?.call();
       return true;
@@ -857,8 +862,7 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
           ),
           ConfirmItemIntent: CallbackAction<ConfirmItemIntent>(
             onInvoke: (_) {
-              final isTextEditing = _isEditingText;
-              if (!isTextEditing) widget.onConfirm?.call();
+              widget.onConfirm?.call();
               return null;
             },
           ),
