@@ -124,13 +124,21 @@ class Repair {
   double get remainingBalance =>
       (estimatedCost - advancePayment).clamp(0, double.infinity).toDouble();
 
+  String get paymentStatus {
+    if (advancePayment <= 0) return 'Pay later';
+    if (remainingBalance <= 0.01) return 'Paid in full';
+    return 'Partial payment';
+  }
+
   double get partsPurchaseTotal =>
       partsUsed.fold(0.0, (sum, part) => sum + part.purchaseTotal);
 
   double get partsSaleTotal =>
       partsUsed.fold(0.0, (sum, part) => sum + part.saleTotal);
 
-  double get profit => estimatedCost - partsPurchaseTotal;
+  double get expectedProfit => estimatedCost - partsPurchaseTotal;
+
+  double get profit => advancePayment - partsPurchaseTotal;
 
   String get jobId => 'R-${jobNumber.toString().padLeft(5, '0')}';
 

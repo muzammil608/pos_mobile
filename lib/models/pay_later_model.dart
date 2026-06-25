@@ -1,3 +1,22 @@
+class KhataType {
+  static const accessory = 'accessory';
+  static const repair = 'repair';
+  static const cash = 'cash';
+
+  static const values = [accessory, repair, cash];
+
+  static String label(String value) {
+    switch (value) {
+      case repair:
+        return 'Repair Khata';
+      case cash:
+        return 'Cash Udhaar';
+      default:
+        return 'Accessory Khata';
+    }
+  }
+}
+
 class PayLaterEntry {
   const PayLaterEntry({
     required this.id,
@@ -46,6 +65,7 @@ class PayLaterPerson {
     required this.id,
     required this.name,
     required this.phone,
+    this.khataType = KhataType.accessory,
     this.address = '',
     this.note = '',
     this.dueDate,
@@ -57,6 +77,7 @@ class PayLaterPerson {
   final String id;
   final String name;
   final String phone;
+  final String khataType;
   final String address;
   final String note;
   final DateTime? dueDate;
@@ -87,6 +108,7 @@ class PayLaterPerson {
   PayLaterPerson copyWith({
     String? name,
     String? phone,
+    String? khataType,
     String? address,
     String? note,
     DateTime? dueDate,
@@ -97,6 +119,7 @@ class PayLaterPerson {
       id: id,
       name: name ?? this.name,
       phone: phone ?? this.phone,
+      khataType: khataType ?? this.khataType,
       address: address ?? this.address,
       note: note ?? this.note,
       dueDate: clearDueDate ? null : dueDate ?? this.dueDate,
@@ -111,6 +134,7 @@ class PayLaterPerson {
       'id': id,
       'name': name,
       'phone': phone,
+      'khataType': khataType,
       'address': address,
       'note': note,
       if (dueDate != null) 'dueDate': dueDate!.toIso8601String(),
@@ -122,22 +146,32 @@ class PayLaterPerson {
 
   factory PayLaterPerson.fromMap(Map<String, dynamic> data) {
     final rawEntries = data['entries'];
+    final entries = rawEntries is List
+        ? rawEntries
+            .whereType<Map>()
+            .map((entry) =>
+                PayLaterEntry.fromMap(Map<String, dynamic>.from(entry)))
+            .toList()
+        : const <PayLaterEntry>[];
+    final savedType = data['khataType']?.toString();
+    final inferredType = entries.isNotEmpty &&
+            entries.every(
+              (entry) => (entry.orderNumber ?? '').startsWith('REPAIR-'),
+            )
+        ? KhataType.repair
+        : KhataType.accessory;
     return PayLaterPerson(
       id: data['id']?.toString() ?? '',
       name: data['name']?.toString() ?? 'Customer',
       phone: data['phone']?.toString() ?? '',
+      khataType:
+          KhataType.values.contains(savedType) ? savedType! : inferredType,
       address: data['address']?.toString() ?? '',
       note: data['note']?.toString() ?? '',
       dueDate: DateTime.tryParse(data['dueDate']?.toString() ?? ''),
       createdAt: DateTime.tryParse(data['createdAt']?.toString() ?? ''),
       updatedAt: DateTime.tryParse(data['updatedAt']?.toString() ?? ''),
-      entries: rawEntries is List
-          ? rawEntries
-              .whereType<Map>()
-              .map((entry) =>
-                  PayLaterEntry.fromMap(Map<String, dynamic>.from(entry)))
-              .toList()
-          : const <PayLaterEntry>[],
+      entries: entries,
     );
   }
 }

@@ -1400,7 +1400,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       try {
         await ThermalPrinterService.instance.printReceiptAuto(
           ThermalReceiptData(
-            companyName: 'Orion POS',
+            companyName: 'AZMAT MOBILE AND REPAIRING CENTER',
             phone: '+92-317-7921817',
             email: 'info@orion.com',
             website: 'www.orion.com',
@@ -1672,7 +1672,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       context: rootContext,
       barrierDismissible: false,
       builder: (dialogContext) => ReceiptDialog(
-        companyName: 'Orion POS',
+        companyName: 'AZMAT MOBILE AND REPAIRING CENTER',
         phone: '+92-317-7921817',
         email: 'info@orion.com',
         website: 'www.orion.com',

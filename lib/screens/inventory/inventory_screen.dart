@@ -729,6 +729,7 @@ class _InventoryBodyState extends State<_InventoryBody> {
         List<PayLaterPerson>
       )> _future;
   StreamSubscription<List<Product>>? _productsSub;
+  Timer? _midnightRefreshTimer;
   bool _profitExpanded = false;
 
   Future<
@@ -769,12 +770,28 @@ class _InventoryBodyState extends State<_InventoryBody> {
     _productsSub = widget.service.streamProducts().listen((_) {
       _refresh();
     });
+    _scheduleMidnightRefresh();
   }
 
   @override
   void dispose() {
     _productsSub?.cancel();
+    _midnightRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _scheduleMidnightRefresh() {
+    _midnightRefreshTimer?.cancel();
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+    _midnightRefreshTimer = Timer(
+      nextMidnight.difference(now) + const Duration(seconds: 1),
+      () {
+        if (!mounted) return;
+        _refresh();
+        _scheduleMidnightRefresh();
+      },
+    );
   }
 
   void _refresh() {
@@ -2424,11 +2441,12 @@ class _ProfitExpansionPanel extends StatelessWidget {
     final productById = {
       for (final p in products) p.id: p,
     };
-    final cutoff = DateTime.now().subtract(const Duration(hours: 12));
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month, now.day);
     final saleTx = transactions.where(
       (t) =>
           t.type.toLowerCase() == 'sale' &&
-          t.createdAt.toLocal().isAfter(cutoff),
+          !t.createdAt.toLocal().isBefore(cutoff),
     );
     final soldQtyByProduct = <String, int>{};
     for (final tx in saleTx) {
@@ -2727,7 +2745,7 @@ Map<String, _ProductProfitSummary> _orderProfitByProduct(
 
     final createdAt =
         _readOrderDate(order['createdAtDate'] ?? order['createdAt']);
-    if (createdAt == null || !createdAt.toLocal().isAfter(cutoff)) continue;
+    if (createdAt == null || createdAt.toLocal().isBefore(cutoff)) continue;
 
     final items = order['items'];
     if (items is! List) continue;

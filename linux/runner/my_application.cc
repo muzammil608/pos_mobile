@@ -14,6 +14,21 @@ struct _MyApplication {
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
+// Some Linux keyboard/IME combinations can emit a key event without a
+// hardware keycode or keyval, especially immediately after a hot restart.
+// Flutter cannot represent that event and asserts before Dart can handle it.
+static gboolean filter_invalid_key_event(GtkWidget* widget,
+                                         GdkEventKey* event,
+                                         gpointer user_data) {
+  if (event == nullptr ||
+      event->hardware_keycode == 0 ||
+      event->keyval == 0) {
+    g_warning("Ignored malformed keyboard event with no key identity");
+    return TRUE;
+  }
+  return FALSE;
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
@@ -61,6 +76,10 @@ static void my_application_activate(GApplication* application) {
   fl_dart_project_set_dart_entrypoint_arguments(project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
+  g_signal_connect(view, "key-press-event",
+                   G_CALLBACK(filter_invalid_key_event), nullptr);
+  g_signal_connect(view, "key-release-event",
+                   G_CALLBACK(filter_invalid_key_event), nullptr);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
 

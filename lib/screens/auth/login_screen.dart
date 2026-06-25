@@ -472,7 +472,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _buildDividerRow('POS', shrinkWrap: true),
         const SizedBox(height: 28),
         Text(
-          'Built for busy restaurant teams\n— so you can focus on the food,\nnot the paperwork.',
+          'Built for mobile shop teams\n— manage sales, repairs, stock,\nand daily cash with confidence.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withOpacity(0.82),

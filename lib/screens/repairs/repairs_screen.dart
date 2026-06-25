@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,7 @@ import '../../core/utils/app_notice.dart';
 import '../../core/constants/pakistan_mobile_catalog.dart';
 import '../../models/repair_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/pay_later_service.dart';
 import '../../services/pocketbase/repair_service.dart';
 import '../../widgets/app_navigation.dart';
 import '../../widgets/repair_receipt_dialog.dart';
@@ -24,8 +27,15 @@ class _RepairsScreenState extends State<RepairsScreen> {
   final GlobalKey<AppNoticeHostState> _noticeKey =
       GlobalKey<AppNoticeHostState>();
   final _searchController = TextEditingController();
+  Timer? _midnightRefreshTimer;
   String _query = '';
   String _status = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleMidnightRefresh();
+  }
 
   @override
   void didChangeDependencies() {
@@ -35,8 +45,23 @@ class _RepairsScreenState extends State<RepairsScreen> {
 
   @override
   void dispose() {
+    _midnightRefreshTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _scheduleMidnightRefresh() {
+    _midnightRefreshTimer?.cancel();
+    final now = DateTime.now();
+    final nextMidnight = DateTime(now.year, now.month, now.day + 1);
+    _midnightRefreshTimer = Timer(
+      nextMidnight.difference(now) + const Duration(seconds: 1),
+      () {
+        if (!mounted) return;
+        setState(() {});
+        _scheduleMidnightRefresh();
+      },
+    );
   }
 
   @override
@@ -137,9 +162,14 @@ class _RepairsScreenState extends State<RepairsScreen> {
           ? sum
           : sum + repair.remainingBalance,
     );
-    final completedProfit = all
-        .where((repair) => repair.status == RepairStatus.completed)
-        .fold<double>(0, (sum, repair) => sum + repair.profit);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final completedProfit = all.where((repair) {
+      if (repair.status != RepairStatus.completed) return false;
+      final completedAt = (repair.completedDate ?? repair.createdAt).toLocal();
+      return !completedAt.isBefore(today) && completedAt.isBefore(tomorrow);
+    }).fold<double>(0, (sum, repair) => sum + repair.profit);
 
     return Column(
       children: [
@@ -176,7 +206,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
                     color: NovaColors.danger,
                   ),
                   _SummaryCard(
-                    label: 'Repair profit',
+                    label: "Today's received profit",
                     value: 'Rs ${completedProfit.toStringAsFixed(0)}',
                     icon: Icons.trending_up_rounded,
                     color: NovaColors.teal,
@@ -306,21 +336,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
   Future<void> _deleteRepair(Repair repair) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${repair.jobId}?'),
-        content: const Text('This repair record cannot be recovered.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: NovaColors.danger),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      builder: (context) => _DeleteRepairDialog(repair: repair),
     );
     if (confirmed != true) return;
 
@@ -377,10 +393,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
         repair == null ? 'Repair job created' : '${repair.jobId} updated',
         type: AppNoticeType.success,
       );
-      if (savedRepair.status == RepairStatus.completed &&
-          repair?.status != RepairStatus.completed) {
-        await _showReceipt(savedRepair);
-      }
+      await _showReceipt(savedRepair);
     }
   }
 
@@ -393,6 +406,159 @@ class _RepairsScreenState extends State<RepairsScreen> {
       message,
       type: type,
       subtitle: subtitle,
+    );
+  }
+}
+
+class _DeleteRepairDialog extends StatelessWidget {
+  const _DeleteRepairDialog({required this.repair});
+
+  final Repair repair;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 380;
+
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Container(
+                padding: EdgeInsets.all(compact ? 18 : 22),
+                decoration: BoxDecoration(
+                  color: NovaColors.bgPrimary,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: NovaColors.borderTertiary),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x26000000),
+                      blurRadius: 28,
+                      offset: Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: NovaColors.dangerLight,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: NovaColors.danger,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Delete ${repair.jobId}?',
+                                style: const TextStyle(
+                                  color: NovaColors.textPrimary,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                repair.deviceName.isEmpty
+                                    ? repair.customerName
+                                    : repair.deviceName,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: NovaColors.textSecondary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'This repair record will be permanently removed.',
+                      style: TextStyle(
+                        color: NovaColors.textSecondary,
+                        fontSize: 14,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Flex(
+                      direction: compact ? Axis.vertical : Axis.horizontal,
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        SizedBox(
+                          width: compact ? double.infinity : null,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: NovaColors.textPrimary,
+                              side: const BorderSide(
+                                color: NovaColors.borderSecondary,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 13,
+                              ),
+                            ),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        SizedBox(
+                            width: compact ? 0 : 10, height: compact ? 10 : 0),
+                        SizedBox(
+                          width: compact ? double.infinity : null,
+                          child: FilledButton.icon(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: NovaColors.danger,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 13,
+                              ),
+                            ),
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('Delete repair'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -413,12 +579,30 @@ class _RepairFormSheet extends StatefulWidget {
 }
 
 class _RepairFormSheetState extends State<_RepairFormSheet> {
+  static const _payLater = 'pay_later';
+  static const _partialPayment = 'partial';
+  static const _paidInFull = 'paid_full';
+
+  static const _commonRepairWork = <String>[
+    'Board work',
+    'Charging base repair',
+    'Soldering / jumper work',
+    'Software repair',
+    'Diagnosis / inspection',
+  ];
+
   final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers;
   late final List<_RepairPartControllers> _partRows;
   late String _status;
   late String _selectedBrand;
   late String _selectedModel;
+  late bool _manualBrand;
+  late bool _manualModel;
+  late String _paymentOption;
+  late bool _showOptionalDetails;
+  late bool _showParts;
+  bool _syncingPayment = false;
   DateTime? _expectedDate;
   DateTime? _completedDate;
   bool _saving = false;
@@ -446,28 +630,49 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
       ),
     };
     _selectedBrand = (repair?.deviceBrand ?? '').trim();
-    if (_selectedBrand.isEmpty) {
+    _manualBrand = _selectedBrand.isNotEmpty &&
+        !PakistanMobileCatalog.brandNames.contains(_selectedBrand);
+    if (_selectedBrand.isEmpty || _manualBrand) {
       _selectedBrand = PakistanMobileCatalog.brandNames.first;
     }
     _selectedModel = (repair?.deviceModel ?? '').trim();
+    _manualModel = _manualBrand ||
+        (_selectedModel.isNotEmpty &&
+            !PakistanMobileCatalog.modelsFor(_selectedBrand)
+                .contains(_selectedModel));
     final availableModels = _modelsForSelectedBrand;
-    if (_selectedModel.isEmpty) {
+    if (_selectedModel.isEmpty || _manualModel) {
       _selectedModel = availableModels.first;
     }
-    _controllers['deviceBrand']!.text = _selectedBrand;
-    _controllers['deviceModel']!.text = _selectedModel;
+    if (!_manualBrand) _controllers['deviceBrand']!.text = _selectedBrand;
+    if (!_manualModel) _controllers['deviceModel']!.text = _selectedModel;
     _partRows = (repair?.partsUsed ?? const <RepairPart>[])
         .map(_RepairPartControllers.fromPart)
         .toList();
+    _showParts = _partRows.isNotEmpty;
     if (_partRows.isEmpty) _partRows.add(_RepairPartControllers());
     _controllers['labour']!.addListener(_refreshTotals);
     _controllers['advance']!.addListener(_refreshTotals);
     for (final row in _partRows) {
       row.addListener(_refreshTotals);
     }
+    final existingPayment = repair?.advancePayment ?? 0;
+    if (existingPayment <= 0) {
+      _paymentOption = _payLater;
+    } else if (repair != null && repair.remainingBalance <= 0.01) {
+      _paymentOption = _paidInFull;
+    } else {
+      _paymentOption = _partialPayment;
+    }
     _status = repair?.status ?? RepairStatus.received;
     _expectedDate = repair?.expectedDeliveryDate;
     _completedDate = repair?.completedDate;
+    _showOptionalDetails = repair != null &&
+        (repair.serialNumber.isNotEmpty ||
+            repair.assignedTechnician.isNotEmpty ||
+            repair.expectedDeliveryDate != null ||
+            repair.completedDate != null ||
+            repair.status != RepairStatus.received);
   }
 
   @override
@@ -482,7 +687,33 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
   }
 
   void _refreshTotals() {
-    if (mounted) setState(() {});
+    if (!mounted || _syncingPayment) return;
+    if (_paymentOption == _paidInFull) {
+      _setAdvance(_repairTotal);
+    } else if (_paymentOption == _payLater && _amount('advance') != 0) {
+      _setAdvance(0);
+    }
+    setState(() {});
+  }
+
+  void _setAdvance(double value) {
+    _syncingPayment = true;
+    _controllers['advance']!.text =
+        value == 0 ? '' : value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+    _syncingPayment = false;
+  }
+
+  void _selectPaymentOption(String option) {
+    setState(() {
+      _paymentOption = option;
+      if (option == _payLater) {
+        _setAdvance(0);
+      } else if (option == _paidInFull) {
+        _setAdvance(_repairTotal);
+      } else if (_amount('advance') >= _repairTotal) {
+        _setAdvance(0);
+      }
+    });
   }
 
   String? _required(String? value) =>
@@ -548,6 +779,27 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
     setState(() {});
   }
 
+  Future<void> _showPhoneKeypad() async {
+    final number = await showDialog<String>(
+      context: context,
+      builder: (context) => _PhoneKeypadDialog(
+        initialValue: _controllers['customerPhone']!.text,
+      ),
+    );
+    if (number == null) return;
+    _controllers['customerPhone']!.text = number;
+  }
+
+  void _addRepairWork(String work) {
+    final controller = _controllers['notes']!;
+    final existing = controller.text.trim();
+    if (existing.toLowerCase().contains(work.toLowerCase())) return;
+    controller.text = existing.isEmpty ? work : '$existing\n$work';
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
+  }
+
   Future<void> _pickDate({required bool completed}) async {
     final current = completed ? _completedDate : _expectedDate;
     final picked = await showDatePicker(
@@ -571,6 +823,15 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
     final total = _repairTotal;
     final labour = _amount('labour');
     final advance = _amount('advance');
+    if (_paymentOption == _partialPayment &&
+        (advance <= 0 || advance >= total)) {
+      AppNotice.show(
+        context,
+        'Partial payment must be more than zero and less than the total',
+        type: AppNoticeType.error,
+      );
+      return;
+    }
     if (advance > total) {
       AppNotice.show(
         context,
@@ -626,6 +887,15 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
           },
         );
       }
+      await PayLaterService(widget.service.ownerId).syncDebitForReference(
+        reference: 'REPAIR-${savedRepair.jobId}',
+        customerName: savedRepair.customerName,
+        phone: savedRepair.customerPhone,
+        amount: savedRepair.remainingBalance,
+        note: '${savedRepair.jobId} repair balance for '
+            '${savedRepair.deviceName.isEmpty ? "device repair" : savedRepair.deviceName}. '
+            'Paid now Rs ${savedRepair.advancePayment.toStringAsFixed(0)}',
+      );
       if (mounted) Navigator.pop(context, savedRepair);
     } catch (error) {
       if (!mounted) return;
@@ -731,99 +1001,187 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
                             LengthLimitingTextInputFormatter(10),
                           ],
                           prefixText: '+92 ',
+                          suffixIcon: IconButton(
+                            tooltip: 'Open phone keypad',
+                            onPressed: _showPhoneKeypad,
+                            icon: const Icon(Icons.dialpad_rounded),
+                          ),
                           preventLabelOverlap: true,
                         ),
+                        _manualBrand
+                            ? _field(
+                                width,
+                                'deviceBrand',
+                                'Enter device brand',
+                                Icons.devices_rounded,
+                                validator: _required,
+                                suffixIcon: IconButton(
+                                  tooltip: 'Choose brand from list',
+                                  onPressed: () {
+                                    setState(() {
+                                      _manualBrand = false;
+                                      _manualModel = false;
+                                      _selectedBrand = PakistanMobileCatalog
+                                          .brandNames.first;
+                                      _controllers['deviceBrand']!.text =
+                                          _selectedBrand;
+                                      _selectedModel =
+                                          _modelsForSelectedBrand.first;
+                                      _controllers['deviceModel']!.text =
+                                          _selectedModel;
+                                    });
+                                  },
+                                  icon: const Icon(Icons.list_rounded),
+                                ),
+                              )
+                            : SizedBox(
+                                width: width,
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedBrand,
+                                  isExpanded: true,
+                                  menuMaxHeight: 360,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Device brand',
+                                    prefixIcon: Icon(Icons.devices_rounded),
+                                  ),
+                                  items: _brandOptions
+                                      .map(
+                                        (brand) => DropdownMenuItem(
+                                          value: brand,
+                                          child: Text(
+                                            brand == 'Other'
+                                                ? 'Other / Enter manually'
+                                                : brand,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (brand) {
+                                    if (brand == null) return;
+                                    if (brand == 'Other') {
+                                      setState(() {
+                                        _manualBrand = true;
+                                        _manualModel = true;
+                                        _controllers['deviceBrand']!.clear();
+                                        _controllers['deviceModel']!.clear();
+                                      });
+                                      return;
+                                    }
+                                    final models =
+                                        PakistanMobileCatalog.modelsFor(brand);
+                                    setState(() {
+                                      _selectedBrand = brand;
+                                      _selectedModel = models.first;
+                                      _manualModel = false;
+                                      _controllers['deviceBrand']!.text = brand;
+                                      _controllers['deviceModel']!.text =
+                                          _selectedModel;
+                                    });
+                                  },
+                                ),
+                              ),
+                        _manualModel
+                            ? _field(
+                                width,
+                                'deviceModel',
+                                'Enter device model',
+                                Icons.smartphone_rounded,
+                                validator: _required,
+                                suffixIcon: _manualBrand
+                                    ? null
+                                    : IconButton(
+                                        tooltip: 'Choose model from list',
+                                        onPressed: () {
+                                          setState(() {
+                                            _manualModel = false;
+                                            _selectedModel =
+                                                _modelsForSelectedBrand.first;
+                                            _controllers['deviceModel']!.text =
+                                                _selectedModel;
+                                          });
+                                        },
+                                        icon: const Icon(Icons.list_rounded),
+                                      ),
+                              )
+                            : SizedBox(
+                                width: width,
+                                child: DropdownButtonFormField<String>(
+                                  value: _selectedModel,
+                                  isExpanded: true,
+                                  menuMaxHeight: 360,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Device model',
+                                    prefixIcon: Icon(Icons.smartphone_rounded),
+                                  ),
+                                  items: _modelsForSelectedBrand
+                                      .map(
+                                        (model) => DropdownMenuItem(
+                                          value: model,
+                                          child: Text(
+                                            model,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (model) {
+                                    if (model == null) return;
+                                    if (model == 'Other / Custom model') {
+                                      setState(() {
+                                        _manualModel = true;
+                                        _controllers['deviceModel']!.clear();
+                                      });
+                                      return;
+                                    }
+                                    setState(() {
+                                      _selectedModel = model;
+                                      _controllers['deviceModel']!.text = model;
+                                    });
+                                  },
+                                ),
+                              ),
                         SizedBox(
-                          width: width,
-                          child: DropdownButtonFormField<String>(
-                            value: _selectedBrand,
-                            isExpanded: true,
-                            menuMaxHeight: 360,
-                            decoration: const InputDecoration(
-                              labelText: 'Device brand',
-                              prefixIcon: Icon(Icons.devices_rounded),
+                          width: constraints.maxWidth,
+                          child: _SimpleSectionToggle(
+                            title: 'Optional job details',
+                            subtitle: 'IMEI, technician, status and dates',
+                            icon: Icons.tune_rounded,
+                            expanded: _showOptionalDetails,
+                            onTap: () => setState(
+                              () =>
+                                  _showOptionalDetails = !_showOptionalDetails,
                             ),
-                            items: _brandOptions
-                                .map(
-                                  (brand) => DropdownMenuItem(
-                                    value: brand,
-                                    child: Text(
-                                      brand,
-                                      overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (_showOptionalDetails)
+                          _field(
+                            width,
+                            'serialNumber',
+                            'IMEI / serial number',
+                            Icons.qr_code_rounded,
+                          ),
+                        if (_showOptionalDetails)
+                          SizedBox(
+                            width: width,
+                            child: DropdownButtonFormField<String>(
+                              value: _status,
+                              decoration: const InputDecoration(
+                                labelText: 'Repair status',
+                                prefixIcon: Icon(Icons.flag_outlined),
+                              ),
+                              items: RepairStatus.values
+                                  .map(
+                                    (status) => DropdownMenuItem(
+                                      value: status,
+                                      child: Text(RepairStatus.label(status)),
                                     ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (brand) {
-                              if (brand == null) return;
-                              final models =
-                                  PakistanMobileCatalog.modelsFor(brand);
-                              setState(() {
-                                _selectedBrand = brand;
-                                _selectedModel = models.first;
-                                _controllers['deviceBrand']!.text = brand;
-                                _controllers['deviceModel']!.text =
-                                    _selectedModel;
-                              });
-                            },
-                          ),
-                        ),
-                        SizedBox(
-                          width: width,
-                          child: DropdownButtonFormField<String>(
-                            value: _selectedModel,
-                            isExpanded: true,
-                            menuMaxHeight: 360,
-                            decoration: const InputDecoration(
-                              labelText: 'Device model',
-                              prefixIcon: Icon(Icons.smartphone_rounded),
+                                  )
+                                  .toList(),
+                              onChanged: (value) =>
+                                  setState(() => _status = value!),
                             ),
-                            items: _modelsForSelectedBrand
-                                .map(
-                                  (model) => DropdownMenuItem(
-                                    value: model,
-                                    child: Text(
-                                      model,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (model) {
-                              if (model == null) return;
-                              setState(() {
-                                _selectedModel = model;
-                                _controllers['deviceModel']!.text = model;
-                              });
-                            },
                           ),
-                        ),
-                        _field(
-                          width,
-                          'serialNumber',
-                          'IMEI / serial number',
-                          Icons.qr_code_rounded,
-                        ),
-                        SizedBox(
-                          width: width,
-                          child: DropdownButtonFormField<String>(
-                            value: _status,
-                            decoration: const InputDecoration(
-                              labelText: 'Repair status',
-                              prefixIcon: Icon(Icons.flag_outlined),
-                            ),
-                            items: RepairStatus.values
-                                .map(
-                                  (status) => DropdownMenuItem(
-                                    value: status,
-                                    child: Text(RepairStatus.label(status)),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (value) =>
-                                setState(() => _status = value!),
-                          ),
-                        ),
                         _field(
                           width,
                           'labour',
@@ -837,33 +1195,47 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
                             ),
                           ],
                         ),
-                        _field(
-                          width,
-                          'advance',
-                          'Advance payment',
-                          Icons.account_balance_wallet_outlined,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                              RegExp(r'^\d*\.?\d{0,2}'),
-                            ),
-                          ],
-                        ),
-                        _field(
-                          width,
-                          'technician',
-                          'Assigned technician',
-                          Icons.engineering_outlined,
-                        ),
-                        _DateField(
+                        SizedBox(
                           width: width,
-                          label: 'Expected delivery date',
-                          value: _expectedDate,
-                          onTap: () => _pickDate(completed: false),
-                          onClear: () => setState(() => _expectedDate = null),
+                          child: _RepairPaymentOptions(
+                            selected: _paymentOption,
+                            payLaterValue: _payLater,
+                            partialValue: _partialPayment,
+                            paidFullValue: _paidInFull,
+                            onSelected: _selectPaymentOption,
+                          ),
                         ),
-                        if (_status == RepairStatus.completed)
+                        if (_paymentOption == _partialPayment)
+                          _field(
+                            width,
+                            'advance',
+                            'Amount paid now',
+                            Icons.account_balance_wallet_outlined,
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r'^\d*\.?\d{0,2}'),
+                              ),
+                            ],
+                          ),
+                        if (_showOptionalDetails)
+                          _field(
+                            width,
+                            'technician',
+                            'Assigned technician',
+                            Icons.engineering_outlined,
+                          ),
+                        if (_showOptionalDetails)
+                          _DateField(
+                            width: width,
+                            label: 'Expected delivery date',
+                            value: _expectedDate,
+                            onTap: () => _pickDate(completed: false),
+                            onClear: () => setState(() => _expectedDate = null),
+                          ),
+                        if (_showOptionalDetails &&
+                            _status == RepairStatus.completed)
                           _DateField(
                             width: width,
                             label: 'Completed date',
@@ -883,18 +1255,51 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
                         _field(
                           constraints.maxWidth,
                           'notes',
-                          'Technician notes',
-                          Icons.sticky_note_2_outlined,
+                          'Repair work performed / technician notes',
+                          Icons.handyman_outlined,
                           maxLines: 3,
                         ),
                         SizedBox(
                           width: constraints.maxWidth,
-                          child: _PartsEditor(
-                            rows: _partRows,
-                            onAdd: _addPart,
-                            onRemove: _removePart,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _commonRepairWork
+                                .map(
+                                  (work) => ActionChip(
+                                    avatar: const Icon(
+                                      Icons.add_rounded,
+                                      size: 17,
+                                    ),
+                                    label: Text(work),
+                                    onPressed: () => _addRepairWork(work),
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ),
+                        SizedBox(
+                          width: constraints.maxWidth,
+                          child: _SimpleSectionToggle(
+                            title: 'Parts used',
+                            subtitle: _showParts
+                                ? 'Add purchase and sale prices'
+                                : 'Optional — skip for board or service work',
+                            icon: Icons.settings_suggest_outlined,
+                            expanded: _showParts,
+                            onTap: () =>
+                                setState(() => _showParts = !_showParts),
+                          ),
+                        ),
+                        if (_showParts)
+                          SizedBox(
+                            width: constraints.maxWidth,
+                            child: _PartsEditor(
+                              rows: _partRows,
+                              onAdd: _addPart,
+                              onRemove: _removePart,
+                            ),
+                          ),
                         SizedBox(
                           width: constraints.maxWidth,
                           child: _RepairTotalsPanel(
@@ -945,6 +1350,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
     String? prefixText,
+    Widget? suffixIcon,
     bool preventLabelOverlap = false,
     int maxLines = 1,
   }) {
@@ -963,6 +1369,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
           alignLabelWithHint: maxLines > 1,
           prefixIcon: Icon(icon),
           prefixText: prefixText,
+          suffixIcon: suffixIcon,
           isDense: false,
           contentPadding: preventLabelOverlap
               ? const EdgeInsets.symmetric(horizontal: 12, vertical: 20)
@@ -979,6 +1386,136 @@ String _pakistanNationalNumber(String value) {
   if (digits.startsWith('92')) digits = digits.substring(2);
   if (digits.startsWith('0')) digits = digits.substring(1);
   return digits.length > 10 ? digits.substring(0, 10) : digits;
+}
+
+class _PhoneKeypadDialog extends StatefulWidget {
+  const _PhoneKeypadDialog({required this.initialValue});
+
+  final String initialValue;
+
+  @override
+  State<_PhoneKeypadDialog> createState() => _PhoneKeypadDialogState();
+}
+
+class _PhoneKeypadDialogState extends State<_PhoneKeypadDialog> {
+  late String _number;
+
+  @override
+  void initState() {
+    super.initState();
+    _number = widget.initialValue.replaceAll(RegExp(r'\D'), '');
+  }
+
+  void _press(String digit) {
+    if (_number.length >= 10) return;
+    setState(() => _number += digit);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+    return AlertDialog(
+      title: const Text('Customer mobile'),
+      content: SizedBox(
+        width: 300,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                color: NovaColors.bgSecondary,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: NovaColors.borderTertiary),
+              ),
+              child: Text(
+                '+92 ${_number.isEmpty ? '__________' : _number}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 1.6,
+              physics: const NeverScrollableScrollPhysics(),
+              children: digits
+                  .map(
+                    (digit) => FilledButton.tonal(
+                      onPressed: () => _press(digit),
+                      child: Text(
+                        digit,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => setState(() => _number = ''),
+                    child: const Text('Clear'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: () {
+                      if (_number.isEmpty) return;
+                      setState(
+                        () =>
+                            _number = _number.substring(0, _number.length - 1),
+                      );
+                    },
+                    child: const Icon(Icons.backspace_outlined),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: () => _press('0'),
+                    child: const Text(
+                      '0',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _number.length == 10
+              ? () => Navigator.pop(context, _number)
+              : null,
+          child: const Text('Use number'),
+        ),
+      ],
+    );
+  }
 }
 
 class _RepairCard extends StatefulWidget {
@@ -1177,13 +1714,24 @@ class _RepairCardState extends State<_RepairCard> {
                 valueColor: completed ? NovaColors.teal : null,
               ),
               _Detail(
-                label: 'Profit',
+                label: 'Received profit',
                 value: 'Rs ${repair.profit.toStringAsFixed(0)}',
                 valueColor:
                     repair.profit >= 0 ? NovaColors.teal : NovaColors.danger,
               ),
               _Detail(
-                label: 'Advance paid',
+                label: 'Expected profit',
+                value: 'Rs ${repair.expectedProfit.toStringAsFixed(0)}',
+              ),
+              _Detail(
+                label: 'Payment status',
+                value: repair.paymentStatus,
+                valueColor: repair.remainingBalance <= 0.01
+                    ? NovaColors.teal
+                    : amountColor,
+              ),
+              _Detail(
+                label: 'Amount paid',
                 value: 'Rs ${repair.advancePayment.toStringAsFixed(0)}',
                 valueColor: completed ? NovaColors.teal : null,
               ),
@@ -1207,7 +1755,7 @@ class _RepairCardState extends State<_RepairCard> {
           if (repair.technicianNotes.isNotEmpty) ...[
             const SizedBox(height: 10),
             _Detail(
-              label: 'Technician notes',
+              label: 'Repair work performed',
               value: repair.technicianNotes,
               fullWidth: true,
             ),
@@ -1475,6 +2023,181 @@ class _PartRow extends StatelessWidget {
   }
 }
 
+class _SimpleSectionToggle extends StatelessWidget {
+  const _SimpleSectionToggle({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: expanded ? NovaColors.violetLight : NovaColors.bgSecondary,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: expanded ? NovaColors.violet : NovaColors.borderTertiary,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: expanded ? NovaColors.violet : NovaColors.textSecondary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: expanded
+                            ? NovaColors.violetDeep
+                            : NovaColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: NovaColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                expanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                color: expanded ? NovaColors.violet : NovaColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RepairPaymentOptions extends StatelessWidget {
+  const _RepairPaymentOptions({
+    required this.selected,
+    required this.payLaterValue,
+    required this.partialValue,
+    required this.paidFullValue,
+    required this.onSelected,
+  });
+
+  final String selected;
+  final String payLaterValue;
+  final String partialValue;
+  final String paidFullValue;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: NovaColors.bgSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: NovaColors.borderTertiary),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.payments_outlined,
+                size: 20,
+                color: NovaColors.textSecondary,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Payment option',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _choice(
+                value: payLaterValue,
+                label: 'Pay later',
+                icon: Icons.schedule_rounded,
+              ),
+              _choice(
+                value: partialValue,
+                label: 'Partial payment',
+                icon: Icons.pie_chart_outline_rounded,
+              ),
+              _choice(
+                value: paidFullValue,
+                label: 'Paid in full',
+                icon: Icons.check_circle_outline_rounded,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _choice({
+    required String value,
+    required String label,
+    required IconData icon,
+  }) {
+    final isSelected = selected == value;
+    return ChoiceChip(
+      selected: isSelected,
+      selectedColor: NovaColors.violetLight,
+      backgroundColor: NovaColors.bgPrimary,
+      side: BorderSide(
+        color: isSelected ? NovaColors.violet : NovaColors.borderSecondary,
+        width: isSelected ? 1.5 : 1,
+      ),
+      avatar: Icon(
+        icon,
+        size: 18,
+        color: isSelected ? NovaColors.violet : NovaColors.textSecondary,
+      ),
+      label: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? NovaColors.violetDeep : NovaColors.textSecondary,
+          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+      showCheckmark: false,
+      onSelected: (_) => onSelected(value),
+    );
+  }
+}
+
 class _RepairTotalsPanel extends StatelessWidget {
   const _RepairTotalsPanel({
     required this.purchaseTotal,
@@ -1507,7 +2230,7 @@ class _RepairTotalsPanel extends StatelessWidget {
           _row('Labour', labour),
           const Divider(),
           _row('Total', total, bold: true),
-          _row('Advance', advance),
+          _row('Paid now', advance),
           _row('Balance', balance, bold: true),
         ],
       ),

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import '../core/theme/receipt_fonts.dart';
 import '../models/repair_model.dart';
+import '../services/printer/thermal_printer_service.dart';
+
+const String _repairShopName = 'AZMAT MOBILE AND REPAIRING CENTER';
+const String _repairComplaintPhone = '03488626699';
 
 class RepairReceiptDialog extends StatelessWidget {
   const RepairReceiptDialog({
@@ -78,6 +79,15 @@ class RepairReceiptDialog extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
+                        _repairShopName,
+                        textAlign: TextAlign.center,
+                        style: NovaFonts.receipt(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
                         'REPAIR RECEIPT',
                         style: NovaFonts.receipt(
                           fontSize: 16,
@@ -106,34 +116,27 @@ class RepairReceiptDialog extends StatelessWidget {
                       const SizedBox(height: 8),
                       _section('Problem', repair.problemDescription),
                       if (repair.technicianNotes.isNotEmpty)
-                        _section('Technician notes', repair.technicianNotes),
-                      if (repair.partsUsed.isNotEmpty) ...[
-                        SizedBox(
-                          width: double.infinity,
-                          child: Text(
-                            'CHARGES',
-                            style: NovaFonts.receipt(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        ...repair.partsUsed.map(_partCharge),
-                      ],
-                      _amount('Labour', repair.labourCost),
+                        _section('Repair work', repair.technicianNotes),
                       const _ReceiptDivider(),
                       const SizedBox(height: 8),
                       _amount('Total', repair.estimatedCost, bold: true),
-                      _amount('Advance', repair.advancePayment),
+                      _amount('Paid', repair.advancePayment),
                       _amount(
                         'Balance',
                         repair.remainingBalance,
                         bold: true,
                       ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Payment: ${repair.paymentStatus.toUpperCase()}',
+                        style: NovaFonts.receipt(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       Text(
-                        'Status: COMPLETED',
+                        'Status: ${RepairStatus.label(repair.status).toUpperCase()}',
                         style: NovaFonts.receipt(
                           fontSize: 12,
                           fontWeight: FontWeight.w800,
@@ -142,7 +145,16 @@ class RepairReceiptDialog extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        'Thank you for choosing Orion POS',
+                        'For info and complaints $_repairComplaintPhone',
+                        textAlign: TextAlign.center,
+                        style: NovaFonts.receipt(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Thank you for choosing $_repairShopName',
                         textAlign: TextAlign.center,
                         style: NovaFonts.receipt(fontSize: 11),
                       ),
@@ -250,176 +262,14 @@ class RepairReceiptDialog extends StatelessWidget {
     );
   }
 
-  Widget _partCharge(RepairPart part) {
-    final label =
-        part.quantity > 1 ? '${part.name} ×${part.quantity}' : part.name;
-    return _amount(label, part.saleTotal);
-  }
-
   Future<void> _print() async {
-    final pdf = pw.Document();
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat(
-          80 * PdfPageFormat.mm,
-          400 * PdfPageFormat.mm,
-          marginAll: 6 * PdfPageFormat.mm,
-        ),
-        build: (_) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          mainAxisSize: pw.MainAxisSize.min,
-          children: [
-            pw.Text(
-              'ORION POS',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                font: pw.Font.courierBold(),
-                fontSize: 16,
-              ),
-            ),
-            pw.Text(
-              'REPAIR RECEIPT',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                font: pw.Font.courierBold(),
-                fontSize: 13,
-              ),
-            ),
-            pw.Text(
-              repair.jobId,
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(font: pw.Font.courier(), fontSize: 11),
-            ),
-            pw.Divider(),
-            _pdfLine('Customer', repair.customerName),
-            _pdfLine('Phone', repair.customerPhone),
-            _pdfLine('Device', repair.deviceName),
-            _pdfLine('IMEI / Serial', repair.serialNumber),
-            _pdfLine('Technician', repair.assignedTechnician),
-            _pdfLine('Received', _formatReceiptDate(repair.createdAt)),
-            _pdfLine('Completed', _formatReceiptDate(repair.completedDate)),
-            pw.Divider(),
-            _pdfSection('Problem', repair.problemDescription),
-            if (repair.technicianNotes.isNotEmpty)
-              _pdfSection('Technician notes', repair.technicianNotes),
-            if (repair.partsUsed.isNotEmpty) ...[
-              pw.Text(
-                'CHARGES',
-                style: pw.TextStyle(
-                  font: pw.Font.courierBold(),
-                  fontSize: 9,
-                ),
-              ),
-              pw.SizedBox(height: 3),
-              ...repair.partsUsed.map(_pdfPartCharge),
-            ],
-            _pdfAmount('Labour', repair.labourCost),
-            pw.Divider(),
-            _pdfAmount('Total', repair.estimatedCost, bold: true),
-            _pdfAmount('Advance', repair.advancePayment),
-            _pdfAmount('Balance', repair.remainingBalance, bold: true),
-            pw.SizedBox(height: 10),
-            pw.Text(
-              'STATUS: COMPLETED',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
-                font: pw.Font.courierBold(),
-                fontSize: 11,
-              ),
-            ),
-            pw.SizedBox(height: 5),
-            pw.Text(
-              'Thank you for choosing Orion POS',
-              textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(font: pw.Font.courier(), fontSize: 9),
-            ),
-          ],
-        ),
+    await ThermalPrinterService.instance.printRepairReceiptAuto(
+      ThermalRepairReceiptData(
+        companyName: _repairShopName,
+        complaintPhone: _repairComplaintPhone,
+        repair: repair,
       ),
     );
-    await Printing.layoutPdf(
-      name: 'repair_${repair.jobId}.pdf',
-      onLayout: (_) async => pdf.save(),
-    );
-  }
-
-  pw.Widget _pdfLine(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-      child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Expanded(
-            flex: 3,
-            child: pw.Text(
-              '$label:',
-              style: pw.TextStyle(
-                font: pw.Font.courierBold(),
-                fontSize: 9,
-              ),
-            ),
-          ),
-          pw.Expanded(
-            flex: 5,
-            child: pw.Text(
-              value.trim().isEmpty ? '-' : value,
-              textAlign: pw.TextAlign.right,
-              style: pw.TextStyle(font: pw.Font.courier(), fontSize: 9),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _pdfSection(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.only(bottom: 7),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(
-            label.toUpperCase(),
-            style: pw.TextStyle(font: pw.Font.courierBold(), fontSize: 9),
-          ),
-          pw.Text(
-            value,
-            style: pw.TextStyle(font: pw.Font.courier(), fontSize: 9),
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _pdfAmount(String label, double value, {bool bold = false}) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(
-            label,
-            style: pw.TextStyle(
-              font: bold ? pw.Font.courierBold() : pw.Font.courier(),
-              fontSize: bold ? 11 : 10,
-            ),
-          ),
-          pw.Text(
-            'Rs ${value.toStringAsFixed(2)}',
-            style: pw.TextStyle(
-              font: bold ? pw.Font.courierBold() : pw.Font.courier(),
-              fontSize: bold ? 11 : 10,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _pdfPartCharge(RepairPart part) {
-    final label =
-        part.quantity > 1 ? '${part.name} x${part.quantity}' : part.name;
-    return _pdfAmount(label, part.saleTotal);
   }
 }
 

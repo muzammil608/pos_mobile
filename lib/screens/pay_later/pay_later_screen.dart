@@ -21,6 +21,7 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
   PayLaterService? _service;
   late Future<List<PayLaterPerson>> _future;
   String _query = '';
+  String _khataType = KhataType.accessory;
 
   @override
   void didChangeDependencies() {
@@ -50,8 +51,9 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
 
   List<PayLaterPerson> _filtered(List<PayLaterPerson> people) {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return people;
     return people.where((person) {
+      if (person.khataType != _khataType) return false;
+      if (q.isEmpty) return true;
       return person.name.toLowerCase().contains(q) ||
           person.phone.toLowerCase().contains(q) ||
           person.address.toLowerCase().contains(q);
@@ -60,19 +62,30 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
 
   Future<void> _openPersonForm({PayLaterPerson? person}) async {
     if (_service == null) return;
+    final isNewCashCustomer = person == null && _khataType == KhataType.cash;
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _PersonFormDialog(
         person: person,
-        onSave: (name, phone, address, note, dueDate) async {
-          await _service!.upsertPerson(
+        showInitialCashAmount: isNewCashCustomer,
+        onSave: (name, phone, address, note, dueDate, initialAmount) async {
+          final savedPerson = await _service!.upsertPerson(
             id: person?.id,
             name: name,
             phone: phone,
+            khataType: person?.khataType ?? _khataType,
             address: address,
             note: note,
             dueDate: dueDate,
           );
+          if (isNewCashCustomer && initialAmount > 0) {
+            await _service!.addEntry(
+              personId: savedPerson.id,
+              type: 'debit',
+              amount: initialAmount,
+              note: note.trim().isEmpty ? 'Cash udhaar given' : note,
+            );
+          }
         },
       ),
     );
@@ -85,15 +98,28 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
   Future<void> _openEntryForm(PayLaterPerson person, String type) async {
     if (_service == null) return;
     final isPayment = type == 'payment';
+    final isCashKhata = person.khataType == KhataType.cash;
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _EntryFormDialog(
-        title: isPayment ? 'Receive Payment' : 'Add Credit Sale',
-        actionLabel: isPayment ? 'Received' : 'Add to Khata',
+        title: isPayment
+            ? (isCashKhata ? 'Cash Returned' : 'Receive Payment')
+            : (isCashKhata ? 'Give Cash Udhaar' : 'Add Credit Sale'),
+        actionLabel: isPayment
+            ? (isCashKhata ? 'Cash Returned' : 'Received')
+            : (isCashKhata ? 'Give Cash' : 'Add to Khata'),
         helperText: isPayment
-            ? 'Use this when the customer gives you money.'
-            : 'Use this when the customer takes items and will pay later.',
-        icon: isPayment ? Icons.payments_rounded : Icons.add_card_rounded,
+            ? (isCashKhata
+                ? 'Record cash returned to the shop owner.'
+                : 'Use this when the customer gives you money.')
+            : (isCashKhata
+                ? 'Personal cash udhaar only. This does not affect app profit.'
+                : 'Use this when the customer takes items and will pay later.'),
+        icon: isPayment
+            ? Icons.payments_rounded
+            : (isCashKhata
+                ? Icons.currency_rupee_rounded
+                : Icons.add_card_rounded),
         color: isPayment ? NovaColors.teal : NovaColors.amber,
         onSave: (amount, note) async {
           return _service!.addEntry(
@@ -210,7 +236,9 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
                       );
                     }
                     final people = _filtered(snapshot.data!);
-                    final allPeople = snapshot.data!;
+                    final allPeople = snapshot.data!
+                        .where((person) => person.khataType == _khataType)
+                        .toList();
                     final totalDue = allPeople.fold(
                       0.0,
                       (sum, person) =>
@@ -225,7 +253,14 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
 
                     return ListView(
                       children: [
+                        _KhataTypeChips(
+                          selected: _khataType,
+                          onSelected: (value) =>
+                              setState(() => _khataType = value),
+                        ),
+                        const SizedBox(height: 12),
                         _PayLaterHeader(
+                          khataType: _khataType,
                           totalDue: _money(totalDue),
                           paidTotal: _money(paidTotal),
                           overdueCount: overdueCount,
@@ -246,6 +281,7 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
                                 '${person.id}-${person.updatedAt?.microsecondsSinceEpoch ?? 0}-${person.entries.length}-${person.balance}',
                               ),
                               person: person,
+                              cashKhata: _khataType == KhataType.cash,
                               balanceText: _money(person.balance),
                               onEdit: () => _openPersonForm(person: person),
                               onDebit: () => _openEntryForm(person, 'debit'),
@@ -435,12 +471,14 @@ class _KhataDialogFrame extends StatelessWidget {
 
 class _PayLaterHeader extends StatelessWidget {
   const _PayLaterHeader({
+    required this.khataType,
     required this.totalDue,
     required this.paidTotal,
     required this.overdueCount,
     required this.onAddCustomer,
   });
 
+  final String khataType;
   final String totalDue;
   final String paidTotal;
   final int overdueCount;
@@ -448,14 +486,21 @@ class _PayLaterHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCash = khataType == KhataType.cash;
+    final title = KhataType.label(khataType);
+    final subtitle = isCash
+        ? 'Standalone cash udhaar. It does not affect sales or profit reports.'
+        : khataType == KhataType.repair
+            ? 'Repair balances and payments only.'
+            : 'Accessory and POS pay-later balances only.';
     return LayoutBuilder(builder: (context, c) {
       final isMobile = c.maxWidth < 760;
-      const titleBlock = Column(
+      final titleBlock = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Pay Later Ledger',
-            style: TextStyle(
+            title,
+            style: const TextStyle(
               color: NovaColors.textPrimary,
               fontSize: 16,
               fontWeight: FontWeight.w700,
@@ -463,8 +508,8 @@ class _PayLaterHeader extends StatelessWidget {
           ),
           SizedBox(height: 2),
           Text(
-            'Simple khata: add credit sale, receive payment, see balance.',
-            style: TextStyle(
+            subtitle,
+            style: const TextStyle(
               color: NovaColors.textSecondary,
               fontSize: 12,
             ),
@@ -502,14 +547,14 @@ class _PayLaterHeader extends StatelessWidget {
                 : CrossAxisAlignment.center,
             children: [
               if (!isMobile)
-                const Expanded(
+                Expanded(
                   flex: 1,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Pay Later Ledger',
-                        style: TextStyle(
+                        title,
+                        style: const TextStyle(
                           color: NovaColors.textPrimary,
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -517,8 +562,8 @@ class _PayLaterHeader extends StatelessWidget {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Simple khata: add credit sale, receive payment, see balance.',
-                        style: TextStyle(
+                        subtitle,
+                        style: const TextStyle(
                           color: NovaColors.textSecondary,
                           fontSize: 12,
                         ),
@@ -564,6 +609,59 @@ class _PayLaterHeader extends StatelessWidget {
         ],
       );
     });
+  }
+}
+
+class _KhataTypeChips extends StatelessWidget {
+  const _KhataTypeChips({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const options = [
+      (
+        KhataType.accessory,
+        'Accessory Khata',
+        Icons.headphones_battery_rounded,
+      ),
+      (KhataType.repair, 'Repair Khata', Icons.handyman_rounded),
+      (KhataType.cash, 'Cash Udhaar', Icons.currency_rupee_rounded),
+    ];
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: options.map((option) {
+        final active = selected == option.$1;
+        return ChoiceChip(
+          selected: active,
+          showCheckmark: false,
+          selectedColor: NovaColors.violetLight,
+          backgroundColor: NovaColors.bgPrimary,
+          side: BorderSide(
+            color: active ? NovaColors.violet : NovaColors.borderSecondary,
+            width: active ? 1.5 : 1,
+          ),
+          avatar: Icon(
+            option.$3,
+            size: 18,
+            color: active ? NovaColors.violet : NovaColors.textSecondary,
+          ),
+          label: Text(
+            option.$2,
+            style: TextStyle(
+              color: active ? NovaColors.violetDeep : NovaColors.textSecondary,
+              fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+          onSelected: (_) => onSelected(option.$1),
+        );
+      }).toList(),
+    );
   }
 }
 
@@ -672,6 +770,7 @@ class _PayLaterCustomerCard extends StatelessWidget {
   const _PayLaterCustomerCard({
     super.key,
     required this.person,
+    required this.cashKhata,
     required this.balanceText,
     required this.onEdit,
     required this.onDebit,
@@ -680,6 +779,7 @@ class _PayLaterCustomerCard extends StatelessWidget {
   });
 
   final PayLaterPerson person;
+  final bool cashKhata;
   final String balanceText;
   final VoidCallback onEdit;
   final VoidCallback onDebit;
@@ -768,7 +868,10 @@ class _PayLaterCustomerCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  _MiniSummary(label: 'Credit Sales', value: person.totalDebit),
+                  _MiniSummary(
+                    label: cashKhata ? 'Cash Given' : 'Credit Sales',
+                    value: person.totalDebit,
+                  ),
                   const SizedBox(width: 8),
                   _MiniSummary(label: 'Received', value: person.totalPaid),
                   const SizedBox(width: 8),
@@ -796,13 +899,15 @@ class _PayLaterCustomerCard extends StatelessWidget {
                 final compact = c.maxWidth < 560;
                 final buttons = [
                   _ActionChipButton(
-                    label: 'Credit Sale',
-                    icon: Icons.add_card_rounded,
+                    label: cashKhata ? 'Give Cash' : 'Credit Sale',
+                    icon: cashKhata
+                        ? Icons.currency_rupee_rounded
+                        : Icons.add_card_rounded,
                     color: NovaColors.amber,
                     onTap: onDebit,
                   ),
                   _ActionChipButton(
-                    label: 'Receive Payment',
+                    label: cashKhata ? 'Cash Returned' : 'Receive Payment',
                     icon: Icons.payments_rounded,
                     color: NovaColors.teal,
                     onTap: onPayment,
@@ -992,15 +1097,21 @@ class _EntryRow extends StatelessWidget {
 }
 
 class _PersonFormDialog extends StatefulWidget {
-  const _PersonFormDialog({required this.onSave, this.person});
+  const _PersonFormDialog({
+    required this.onSave,
+    this.person,
+    this.showInitialCashAmount = false,
+  });
 
   final PayLaterPerson? person;
+  final bool showInitialCashAmount;
   final Future<void> Function(
     String name,
     String phone,
     String address,
     String note,
     DateTime? dueDate,
+    double initialAmount,
   ) onSave;
 
   @override
@@ -1013,6 +1124,7 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
   late final TextEditingController _phone;
   late final TextEditingController _address;
   late final TextEditingController _note;
+  late final TextEditingController _initialAmount;
   DateTime? _dueDate;
   bool _saving = false;
 
@@ -1024,6 +1136,7 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
     _phone = TextEditingController(text: person?.phone ?? '');
     _address = TextEditingController(text: person?.address ?? '');
     _note = TextEditingController(text: person?.note ?? '');
+    _initialAmount = TextEditingController();
     _dueDate = person?.dueDate;
   }
 
@@ -1033,6 +1146,7 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
     _phone.dispose();
     _address.dispose();
     _note.dispose();
+    _initialAmount.dispose();
     super.dispose();
   }
 
@@ -1056,6 +1170,7 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
       _address.text,
       _note.text,
       _dueDate,
+      double.tryParse(_initialAmount.text.trim()) ?? 0,
     );
     if (mounted) Navigator.pop(context, true);
   }
@@ -1105,6 +1220,29 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
               ),
               keyboardType: TextInputType.phone,
             ),
+            if (widget.showInitialCashAmount) ...[
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _initialAmount,
+                autofocus: true,
+                decoration: _khataFieldDecoration(
+                  'Cash Given',
+                  icon: Icons.currency_rupee_rounded,
+                ).copyWith(
+                  prefixText: 'Rs  ',
+                  helperText: 'Initial cash udhaar given to this person.',
+                ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                validator: (value) {
+                  final amount = double.tryParse(value?.trim() ?? '');
+                  if (amount == null || amount <= 0) {
+                    return 'Enter the cash amount given';
+                  }
+                  return null;
+                },
+              ),
+            ],
             const SizedBox(height: 10),
             TextFormField(
               controller: _address,

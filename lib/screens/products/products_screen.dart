@@ -98,6 +98,32 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   void _showProductForm(BuildContext context, {Product? product}) {
+    const brandItems = [
+      "Infinix",
+      "Tecno",
+      "Samsung",
+      "Oppo",
+      "Vivo",
+      "Xiaomi",
+      "Realme",
+      "Apple",
+      "Daw-Link",
+      "Generic",
+      "R.T",
+      "HM",
+      "Ronin",
+      "Audionic",
+      "Anker",
+      "Baseus",
+      "Remax",
+      "Dany",
+      "Joyroom",
+      "Faster",
+      "LDNIO",
+      "Oraimo",
+      "Yesido",
+      "Other",
+    ];
     final nameController = TextEditingController(text: product?.name ?? '');
     final priceController = TextEditingController(
       text: product != null ? product.price.toStringAsFixed(0) : '',
@@ -128,7 +154,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
     );
     final modelCodeController =
         TextEditingController(text: product?.modelCode ?? '');
-    String selectedBrand = product?.brand ?? 'Infinix';
+    final savedBrand = product?.brand.trim() ?? '';
+    bool manualBrand =
+        savedBrand.isNotEmpty && !brandItems.contains(savedBrand);
+    String selectedBrand =
+        manualBrand ? 'Other' : (savedBrand.isEmpty ? 'Infinix' : savedBrand);
+    final customBrandController = TextEditingController(
+      text: manualBrand ? savedBrand : '',
+    );
     String selectedQualityTier = product?.qualityTier ?? 'Normal Copy';
     String selectedCategory = product?.category ?? 'panels';
     bool allowBargain = product?.allowBargain ?? false;
@@ -491,53 +524,57 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: Builder(builder: (context) {
-                                              final brandItems = [
-                                                "Infinix",
-                                                "Tecno",
-                                                "Samsung",
-                                                "Oppo",
-                                                "Vivo",
-                                                "Xiaomi",
-                                                "Realme",
-                                                "Apple",
-                                                "Daw-Link",
-                                                "Generic",
-                                                "Ronin",
-                                                "Audionic",
-                                                "Anker",
-                                                "Baseus",
-                                                "Remax",
-                                                "Dany",
-                                                "Joyroom",
-                                                "Faster",
-                                                "LDNIO",
-                                                "Oraimo",
-                                                "Yesido",
-                                                "Other"
-                                              ];
-                                              if (selectedBrand.isNotEmpty &&
-                                                  !brandItems.contains(
-                                                      selectedBrand)) {
-                                                brandItems.add(selectedBrand);
+                                              if (manualBrand) {
+                                                return _StyledField(
+                                                  controller:
+                                                      customBrandController,
+                                                  label: 'Enter Brand',
+                                                  icon: Icons
+                                                      .branding_watermark_outlined,
+                                                  textCapitalization:
+                                                      TextCapitalization.words,
+                                                  validator: (value) => value ==
+                                                              null ||
+                                                          value.trim().isEmpty
+                                                      ? 'Required'
+                                                      : null,
+                                                  suffixIcon: IconButton(
+                                                    tooltip:
+                                                        'Choose brand from list',
+                                                    onPressed: () {
+                                                      setSheetState(() {
+                                                        manualBrand = false;
+                                                        selectedBrand =
+                                                            'Infinix';
+                                                      });
+                                                    },
+                                                    icon: const Icon(
+                                                        Icons.list_rounded),
+                                                  ),
+                                                );
                                               }
                                               return _StyledDropdown<String>(
-                                                value: selectedBrand,
-                                                label: 'Brand',
-                                                icon: Icons
-                                                    .branding_watermark_outlined,
-                                                items: brandItems
-                                                    .map((b) =>
-                                                        DropdownMenuItem(
-                                                            value: b,
-                                                            child: Text(b)))
-                                                    .toList(),
-                                                onChanged: (v) {
-                                                  if (v != null) {
-                                                    setSheetState(() =>
-                                                        selectedBrand = v);
-                                                  }
-                                                },
-                                              );
+                                                  value: selectedBrand,
+                                                  label: 'Brand',
+                                                  icon: Icons
+                                                      .branding_watermark_outlined,
+                                                  items: brandItems
+                                                      .map((b) =>
+                                                          DropdownMenuItem(
+                                                              value: b,
+                                                              child: Text(b)))
+                                                      .toList(),
+                                                  onChanged: (v) {
+                                                    if (v == null) return;
+                                                    setSheetState(() {
+                                                      selectedBrand = v;
+                                                      if (v == 'Other') {
+                                                        manualBrand = true;
+                                                        customBrandController
+                                                            .clear();
+                                                      }
+                                                    });
+                                                  });
                                             }),
                                           ),
                                         ],
@@ -894,6 +931,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                 0;
                                             final modelCode =
                                                 modelCodeController.text.trim();
+                                            final brand = manualBrand
+                                                ? customBrandController.text
+                                                    .trim()
+                                                : selectedBrand;
 
                                             String? error;
                                             if (isEdit) {
@@ -909,7 +950,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                     maxDiscountPercent,
                                                 category: selectedCategory,
                                                 modelCode: modelCode,
-                                                brand: selectedBrand,
+                                                brand: brand,
                                                 qualityTier:
                                                     selectedQualityTier,
                                                 stockQty: stockQty,
@@ -932,7 +973,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                     maxDiscountPercent,
                                                 category: selectedCategory,
                                                 modelCode: modelCode,
-                                                brand: selectedBrand,
+                                                brand: brand,
                                                 qualityTier:
                                                     selectedQualityTier,
                                                 stockQty: stockQty,
@@ -1607,6 +1648,7 @@ class _StyledField extends StatelessWidget {
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
   final VoidCallback? onTap;
+  final Widget? suffixIcon;
 
   const _StyledField({
     required this.controller,
@@ -1618,6 +1660,7 @@ class _StyledField extends StatelessWidget {
     this.keyboardType,
     this.validator,
     this.onTap,
+    this.suffixIcon,
   });
 
   @override
@@ -1636,6 +1679,7 @@ class _StyledField extends StatelessWidget {
         labelStyle: TextStyle(
             color: CafeColors.charcoal.withOpacity(0.55), fontSize: 13),
         prefixIcon: Icon(icon, color: CafeColors.flame, size: 20),
+        suffixIcon: suffixIcon,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: CafeColors.flame.withOpacity(0.2)),
