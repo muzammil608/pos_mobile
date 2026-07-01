@@ -129,7 +129,6 @@ class PosShortcuts {
         const NextCategoryIntent(),
     const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
         const PrevCategoryIntent(),
-    const SingleActivator(LogicalKeyboardKey.f1): const NewOrderIntent(),
     const SingleActivator(LogicalKeyboardKey.f2): const ReadyOrdersIntent(),
     const SingleActivator(LogicalKeyboardKey.f3): const ClearCartIntent(),
     const SingleActivator(LogicalKeyboardKey.f4): const OpenProductsIntent(),
@@ -225,10 +224,6 @@ class PosHotkeyRegistry {
     await unregisterAll();
 
     final hotkeys = <(HotKey, VoidCallback)>[
-      (
-        HotKey(key: PhysicalKeyboardKey.f1, scope: HotKeyScope.inapp),
-        onF1NewOrder
-      ),
       (HotKey(key: PhysicalKeyboardKey.f2, scope: HotKeyScope.inapp), onF2Cart),
       (
         HotKey(key: PhysicalKeyboardKey.f3, scope: HotKeyScope.inapp),
@@ -1546,7 +1541,7 @@ class PosShortcutHelp extends StatelessWidget {
       (
         'F-Keys',
         [
-          ('F1', 'New order / go to POS'),
+          ('F1', 'Open Repair Desk'),
           ('F2', 'Ready orders'),
           ('F3', 'Clear current order'),
           ('F4', 'Open products'),

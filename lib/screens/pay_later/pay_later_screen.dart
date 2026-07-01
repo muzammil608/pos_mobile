@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/nova_theme.dart';
@@ -6,6 +7,7 @@ import '../../core/utils/app_notice.dart';
 import '../../models/pay_later_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/pay_later_service.dart';
+import '../../services/pocketbase/repair_service.dart';
 import '../../widgets/app_navigation.dart';
 
 class PayLaterScreen extends StatefulWidget {
@@ -29,7 +31,7 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
     final auth = context.read<AuthProvider>();
     if (_service == null) {
       _service = PayLaterService(auth.ownerId);
-      _future = _service!.getPeople();
+      _future = _loadPeopleAndSyncRepairs();
     }
   }
 
@@ -41,10 +43,55 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
 
   void _refresh() {
     if (!mounted || _service == null) return;
-    final next = _service!.getPeople();
+    final next = _loadPeopleAndSyncRepairs();
     setState(() {
       _future = next;
     });
+  }
+
+  Future<List<PayLaterPerson>> _loadPeopleAndSyncRepairs() async {
+    final ownerId = context.read<AuthProvider>().ownerId;
+    final people = await _service!.getPeople();
+    try {
+      final repairService = RepairService(ownerId);
+      final repairs = await repairService.getRepairsList();
+
+      for (final person in people.where(
+        (person) => person.khataType == KhataType.repair,
+      )) {
+        final references = person.entries
+            .where((entry) =>
+                !entry.isPayment &&
+                (entry.orderNumber?.startsWith('REPAIR-') ?? false))
+            .map((entry) => entry.orderNumber!)
+            .toSet();
+        final linked = repairs
+            .where((repair) => references.contains('REPAIR-${repair.jobId}'))
+            .where((repair) => repair.remainingBalance > 0.01)
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        final repairBalance = linked.fold<double>(
+          0,
+          (sum, repair) => sum + repair.remainingBalance,
+        );
+        var paymentToApply =
+            repairBalance - person.balance.clamp(0, double.infinity);
+        if (paymentToApply <= 0.01) continue;
+
+        for (final repair in linked) {
+          if (paymentToApply <= 0.01) break;
+          final applied = paymentToApply.clamp(0, repair.remainingBalance);
+          await repairService.updateRepair(
+            repair.id,
+            values: {'advancePayment': repair.advancePayment + applied},
+          );
+          paymentToApply -= applied;
+        }
+      }
+    } catch (_) {
+      // Khata remains usable offline; repair sync retries on the next refresh.
+    }
+    return people;
   }
 
   String _money(double value) => 'Rs ${value.toStringAsFixed(0)}';
@@ -121,6 +168,7 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
                 ? Icons.currency_rupee_rounded
                 : Icons.add_card_rounded),
         color: isPayment ? NovaColors.teal : NovaColors.amber,
+        maxAmount: isPayment && person.balance > 0 ? person.balance : null,
         onSave: (amount, note) async {
           return _service!.addEntry(
             personId: person.id,
@@ -148,6 +196,8 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
         icon: Icons.delete_outline_rounded,
         iconColor: NovaColors.danger,
         maxWidth: 380,
+        onSubmit: () => Navigator.pop(dialogContext, true),
+        onCancel: () => Navigator.pop(dialogContext, false),
         actions: [
           OutlinedButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -361,6 +411,8 @@ class _KhataDialogFrame extends StatelessWidget {
     required this.child,
     required this.actions,
     this.maxWidth = 440,
+    this.onSubmit,
+    this.onCancel,
   });
 
   final String title;
@@ -369,13 +421,15 @@ class _KhataDialogFrame extends StatelessWidget {
   final Widget child;
   final List<Widget> actions;
   final double maxWidth;
+  final VoidCallback? onSubmit;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < 520;
 
-    return Dialog(
+    final dialog = Dialog(
       insetPadding: EdgeInsets.symmetric(
         horizontal: isMobile ? 12 : 24,
         vertical: 20,
@@ -465,6 +519,18 @@ class _KhataDialogFrame extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (onSubmit == null && onCancel == null) return dialog;
+    return CallbackShortcuts(
+      bindings: {
+        if (onSubmit != null)
+          const SingleActivator(LogicalKeyboardKey.enter): onSubmit!,
+        if (onSubmit != null)
+          const SingleActivator(LogicalKeyboardKey.numpadEnter): onSubmit!,
+        if (onCancel != null)
+          const SingleActivator(LogicalKeyboardKey.escape): onCancel!,
+      },
+      child: Focus(autofocus: true, child: dialog),
     );
   }
 }
@@ -1185,6 +1251,8 @@ class _PersonFormDialogState extends State<_PersonFormDialog> {
       icon: Icons.person_add_alt_1_rounded,
       iconColor: NovaColors.violet,
       maxWidth: 460,
+      onSubmit: _save,
+      onCancel: () => Navigator.pop(context, false),
       actions: [
         OutlinedButton(
           onPressed: _saving ? null : () => Navigator.pop(context, false),
@@ -1296,6 +1364,7 @@ class _EntryFormDialog extends StatefulWidget {
     required this.icon,
     required this.color,
     required this.onSave,
+    this.maxAmount,
   });
 
   final String title;
@@ -1304,6 +1373,7 @@ class _EntryFormDialog extends StatefulWidget {
   final IconData icon;
   final Color color;
   final Future<bool> Function(double amount, String note) onSave;
+  final double? maxAmount;
 
   @override
   State<_EntryFormDialog> createState() => _EntryFormDialogState();
@@ -1345,6 +1415,8 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
       icon: widget.icon,
       iconColor: widget.color,
       maxWidth: 400,
+      onSubmit: _save,
+      onCancel: () => Navigator.pop(context, false),
       actions: [
         OutlinedButton(
           onPressed: _saving ? null : () => Navigator.pop(context, false),
@@ -1386,6 +1458,9 @@ class _EntryFormDialogState extends State<_EntryFormDialog> {
                 final amount = double.tryParse(value?.trim() ?? '');
                 if (amount == null || amount <= 0) {
                   return 'Enter a valid amount';
+                }
+                if (widget.maxAmount != null && amount > widget.maxAmount!) {
+                  return 'Maximum remaining is Rs ${widget.maxAmount!.toStringAsFixed(0)}';
                 }
                 return null;
               },

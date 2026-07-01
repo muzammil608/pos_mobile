@@ -620,6 +620,7 @@ class AppNavigationShell extends StatefulWidget {
 class _AppNavigationShellState extends State<AppNavigationShell> {
   bool _hovered = false;
   bool _navigatingToPos = false;
+  bool _navigatingToRepairs = false;
 
   @override
   void initState() {
@@ -641,6 +642,10 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
       _goToOrderStation();
       return true;
     }
+    if (event.logicalKey == LogicalKeyboardKey.f1) {
+      _goToRepairDesk();
+      return true;
+    }
 
     return false;
   }
@@ -653,6 +658,16 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
     await navigator.pushNamedAndRemoveUntil('/pos', (route) => false);
 
     _navigatingToPos = false;
+  }
+
+  Future<void> _goToRepairDesk() async {
+    if (_navigatingToRepairs || widget.currentRoute == '/repairs') return;
+    _navigatingToRepairs = true;
+
+    final navigator = Navigator.of(context);
+    await navigator.pushNamedAndRemoveUntil('/repairs', (route) => false);
+
+    _navigatingToRepairs = false;
   }
 
   @override

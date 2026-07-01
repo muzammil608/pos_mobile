@@ -44,7 +44,11 @@ class RepairReceiptDialog extends StatelessWidget {
             _CloseRepairReceiptIntent:
                 CallbackAction<_CloseRepairReceiptIntent>(
               onInvoke: (_) {
-                Navigator.pop(context);
+                // Closing synchronously while Flutter is dispatching the ESC
+                // key can dispose the dialog's focus listenables mid-build.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (context.mounted) Navigator.maybePop(context);
+                });
                 return null;
               },
             ),

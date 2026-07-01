@@ -619,7 +619,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   Future<void> _registerHotkeys() async {
     await PosHotkeyRegistry.register(
       onF1NewOrder: () {
-        if (mounted) _startNewOrder();
+        if (!mounted) return;
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/repairs',
+          (route) => false,
+        );
       },
       onF2Cart: () {
         if (!mounted) return;

@@ -90,6 +90,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
             userName: userName,
           ),
           floatingActionButton: FloatingActionButton.extended(
+            tooltip: 'New repair',
             onPressed: () => _showRepairForm(),
             backgroundColor: CafeColors.flame,
             foregroundColor: Colors.white,
@@ -240,6 +241,14 @@ class _RepairsScreenState extends State<RepairsScreen> {
       ],
       onChanged: (value) => setState(() => _status = value ?? 'all'),
     );
+    final reportButton = OutlinedButton.icon(
+      onPressed: () => showDialog<void>(
+        context: context,
+        builder: (_) => _RepairReportDialog(repairs: all),
+      ),
+      icon: const Icon(Icons.analytics_outlined, size: 18),
+      label: const Text('Repair Report'),
+    );
 
     Widget repairCard(int index) => _RepairCard(
           repair: visible[index],
@@ -266,6 +275,8 @@ class _RepairsScreenState extends State<RepairsScreen> {
                   search,
                   const SizedBox(height: 8),
                   filter,
+                  const SizedBox(height: 8),
+                  SizedBox(width: double.infinity, child: reportButton),
                 ],
               ),
             ),
@@ -306,6 +317,8 @@ class _RepairsScreenState extends State<RepairsScreen> {
                       Expanded(child: search),
                       const SizedBox(width: 12),
                       SizedBox(width: 220, child: filter),
+                      const SizedBox(width: 12),
+                      SizedBox(height: 48, child: reportButton),
                     ],
                   );
                 },
@@ -368,6 +381,12 @@ class _RepairsScreenState extends State<RepairsScreen> {
 
     try {
       await _service!.deleteRepair(repair.id);
+      await PayLaterService(_service!.ownerId).syncDebitForReference(
+        reference: 'REPAIR-${repair.jobId}',
+        customerName: repair.customerName,
+        phone: repair.customerPhone,
+        amount: 0,
+      );
       if (!mounted) return;
       _showNotice(
         '${repair.jobId} deleted',
@@ -443,7 +462,13 @@ class _DeleteRepairDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
+    void close(bool confirmed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.pop(context, confirmed);
+      });
+    }
+
+    final dialog = Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -586,6 +611,18 @@ class _DeleteRepairDialog extends StatelessWidget {
         },
       ),
     );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter): () => close(true),
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>
+            close(true),
+        const SingleActivator(LogicalKeyboardKey.escape): () => close(false),
+      },
+      child: Focus(
+        autofocus: true,
+        child: dialog,
+      ),
+    );
   }
 }
 
@@ -608,6 +645,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
   static const _payLater = 'pay_later';
   static const _partialPayment = 'partial';
   static const _paidInFull = 'paid_full';
+  static const _paidAfterCompletion = 'paid_after_completion';
 
   static const _commonRepairWork = <String>[
     'Board work',
@@ -714,7 +752,8 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
 
   void _refreshTotals() {
     if (!mounted || _syncingPayment) return;
-    if (_paymentOption == _paidInFull) {
+    if (_paymentOption == _paidInFull ||
+        _paymentOption == _paidAfterCompletion) {
       _setAdvance(_repairTotal);
     } else if (_paymentOption == _payLater && _amount('advance') != 0) {
       _setAdvance(0);
@@ -734,7 +773,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
       _paymentOption = option;
       if (option == _payLater) {
         _setAdvance(0);
-      } else if (option == _paidInFull) {
+      } else if (option == _paidInFull || option == _paidAfterCompletion) {
         _setAdvance(_repairTotal);
       } else if (_amount('advance') >= _repairTotal) {
         _setAdvance(0);
@@ -1228,6 +1267,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
                             payLaterValue: _payLater,
                             partialValue: _partialPayment,
                             paidFullValue: _paidInFull,
+                            paidAfterCompletionValue: _paidAfterCompletion,
                             onSelected: _selectPaymentOption,
                           ),
                         ),
@@ -1441,7 +1481,20 @@ class _PhoneKeypadDialogState extends State<_PhoneKeypadDialog> {
   @override
   Widget build(BuildContext context) {
     const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    return AlertDialog(
+    void submit() {
+      if (_number.length != 10) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.pop(context, _number);
+      });
+    }
+
+    void cancel() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted) Navigator.pop(context);
+      });
+    }
+
+    final dialog = AlertDialog(
       title: const Text('Customer mobile'),
       content: SizedBox(
         width: 300,
@@ -1541,6 +1594,17 @@ class _PhoneKeypadDialogState extends State<_PhoneKeypadDialog> {
           child: const Text('Use number'),
         ),
       ],
+    );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter): submit,
+        const SingleActivator(LogicalKeyboardKey.numpadEnter): submit,
+        const SingleActivator(LogicalKeyboardKey.escape): cancel,
+      },
+      child: Focus(
+        autofocus: true,
+        child: dialog,
+      ),
     );
   }
 }
@@ -2127,6 +2191,7 @@ class _RepairPaymentOptions extends StatelessWidget {
     required this.payLaterValue,
     required this.partialValue,
     required this.paidFullValue,
+    required this.paidAfterCompletionValue,
     required this.onSelected,
   });
 
@@ -2134,6 +2199,7 @@ class _RepairPaymentOptions extends StatelessWidget {
   final String payLaterValue;
   final String partialValue;
   final String paidFullValue;
+  final String paidAfterCompletionValue;
   final ValueChanged<String> onSelected;
 
   @override
@@ -2163,26 +2229,42 @@ class _RepairPaymentOptions extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _choice(
-                value: payLaterValue,
-                label: 'Pay later',
-                icon: Icons.schedule_rounded,
-              ),
-              _choice(
-                value: partialValue,
-                label: 'Advance payment',
-                icon: Icons.pie_chart_outline_rounded,
-              ),
-              _choice(
-                value: paidFullValue,
-                label: 'Full payment received',
-                icon: Icons.check_circle_outline_rounded,
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = constraints.maxWidth >= 360 ? 2 : 1;
+              final itemWidth =
+                  (constraints.maxWidth - (columns - 1) * 8) / columns;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _choice(
+                    width: itemWidth,
+                    value: payLaterValue,
+                    label: 'Pay later',
+                    icon: Icons.schedule_rounded,
+                  ),
+                  _choice(
+                    width: itemWidth,
+                    value: partialValue,
+                    label: 'Advance payment',
+                    icon: Icons.pie_chart_outline_rounded,
+                  ),
+                  _choice(
+                    width: itemWidth,
+                    value: paidFullValue,
+                    label: 'Full payment',
+                    icon: Icons.check_circle_outline_rounded,
+                  ),
+                  _choice(
+                    width: itemWidth,
+                    value: paidAfterCompletionValue,
+                    label: 'Paid after completion',
+                    icon: Icons.task_alt_rounded,
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -2190,33 +2272,63 @@ class _RepairPaymentOptions extends StatelessWidget {
   }
 
   Widget _choice({
+    required double width,
     required String value,
     required String label,
     required IconData icon,
   }) {
     final isSelected = selected == value;
-    return ChoiceChip(
-      selected: isSelected,
-      selectedColor: NovaColors.violetLight,
-      backgroundColor: NovaColors.bgPrimary,
-      side: BorderSide(
-        color: isSelected ? NovaColors.violet : NovaColors.borderSecondary,
-        width: isSelected ? 1.5 : 1,
-      ),
-      avatar: Icon(
-        icon,
-        size: 18,
-        color: isSelected ? NovaColors.violet : NovaColors.textSecondary,
-      ),
-      label: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? NovaColors.violetDeep : NovaColors.textSecondary,
-          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: isSelected ? NovaColors.violetLight : NovaColors.bgPrimary,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: () => onSelected(value),
+          borderRadius: BorderRadius.circular(10),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color:
+                    isSelected ? NovaColors.violet : NovaColors.borderSecondary,
+                width: isSelected ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color:
+                      isSelected ? NovaColors.violet : NovaColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isSelected
+                          ? NovaColors.violetDeep
+                          : NovaColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight:
+                          isSelected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (isSelected)
+                  const Icon(Icons.check_circle_rounded,
+                      size: 16, color: NovaColors.violet),
+              ],
+            ),
+          ),
         ),
       ),
-      showCheckmark: false,
-      onSelected: (_) => onSelected(value),
     );
   }
 }
@@ -2526,6 +2638,216 @@ class _EmptyState extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RepairReportDialog extends StatefulWidget {
+  const _RepairReportDialog({required this.repairs});
+
+  final List<Repair> repairs;
+
+  @override
+  State<_RepairReportDialog> createState() => _RepairReportDialogState();
+}
+
+class _RepairReportDialogState extends State<_RepairReportDialog> {
+  String _period = 'today';
+
+  List<Repair> get _filtered {
+    if (_period == 'all') return widget.repairs;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final start = switch (_period) {
+      '7days' => today.subtract(const Duration(days: 6)),
+      '30days' => today.subtract(const Duration(days: 29)),
+      _ => today,
+    };
+    return widget.repairs.where((repair) {
+      final date = (repair.completedDate ?? repair.createdAt).toLocal();
+      return !date.isBefore(start);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repairs = _filtered;
+    final completed = repairs
+        .where((repair) => repair.status == RepairStatus.completed)
+        .toList();
+    final active = repairs.where((repair) =>
+        repair.status != RepairStatus.completed &&
+        repair.status != RepairStatus.cancelled);
+    final revenue = completed.fold<double>(
+      0,
+      (sum, repair) => sum + repair.estimatedCost,
+    );
+    final received = repairs
+        .where((repair) => repair.status != RepairStatus.cancelled)
+        .fold<double>(0, (sum, repair) => sum + repair.advancePayment);
+    final outstanding = repairs
+        .where((repair) => repair.status != RepairStatus.cancelled)
+        .fold<double>(0, (sum, repair) => sum + repair.remainingBalance);
+    final partsCost = completed.fold<double>(
+      0,
+      (sum, repair) => sum + repair.partsPurchaseTotal,
+    );
+    final profit = completed.fold<double>(
+      0,
+      (sum, repair) => sum + repair.profit,
+    );
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 920, maxHeight: 760),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.analytics_rounded, color: NovaColors.violet),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Repair Report',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  DropdownButton<String>(
+                    value: _period,
+                    items: const [
+                      DropdownMenuItem(value: 'today', child: Text('Today')),
+                      DropdownMenuItem(
+                          value: '7days', child: Text('Last 7 days')),
+                      DropdownMenuItem(
+                          value: '30days', child: Text('Last 30 days')),
+                      DropdownMenuItem(value: 'all', child: Text('All time')),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _period = value ?? 'today'),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _ReportMetric('Jobs', '${repairs.length}', NovaColors.violet),
+                  _ReportMetric('Active', '${active.length}', NovaColors.amber),
+                  _ReportMetric(
+                      'Completed', '${completed.length}', NovaColors.teal),
+                  _ReportMetric('Revenue', _money(revenue), NovaColors.violet),
+                  _ReportMetric('Received', _money(received), NovaColors.teal),
+                  _ReportMetric(
+                      'Outstanding', _money(outstanding), NovaColors.danger),
+                  _ReportMetric(
+                      'Parts cost', _money(partsCost), NovaColors.amber),
+                  _ReportMetric(
+                    'Net profit',
+                    _money(profit),
+                    profit >= 0 ? NovaColors.teal : NovaColors.danger,
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: repairs.isEmpty
+                  ? const Center(child: Text('No repairs in this period.'))
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: repairs.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final repair = repairs[index];
+                        return ListTile(
+                          tileColor: NovaColors.bgSecondary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          leading: CircleAvatar(
+                            backgroundColor:
+                                _statusColor(repair.status).withOpacity(0.12),
+                            child: Icon(Icons.build_rounded,
+                                color: _statusColor(repair.status), size: 19),
+                          ),
+                          title: Text(
+                            '${repair.jobId} · ${repair.customerName}',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            '${repair.deviceName} · ${RepairStatus.label(repair.status)} · ${_formatDate(repair.completedDate ?? repair.createdAt)}',
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(_money(repair.estimatedCost),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w800)),
+                              Text(
+                                  repair.status == RepairStatus.completed
+                                      ? 'Profit ${_money(repair.profit)}'
+                                      : 'Balance ${_money(repair.remainingBalance)}',
+                                  style: const TextStyle(
+                                      color: NovaColors.textSecondary,
+                                      fontSize: 11)),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _money(double value) => 'Rs ${value.toStringAsFixed(0)}';
+}
+
+class _ReportMetric extends StatelessWidget {
+  const _ReportMetric(this.label, this.value, this.color);
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 190,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  color: NovaColors.textSecondary, fontSize: 11)),
+          const SizedBox(height: 3),
+          Text(value,
+              style: TextStyle(
+                  color: color, fontSize: 17, fontWeight: FontWeight.w800)),
+        ],
       ),
     );
   }
