@@ -138,7 +138,8 @@ class Repair {
 
   double get expectedProfit => estimatedCost - partsPurchaseTotal;
 
-  double get profit => advancePayment - partsPurchaseTotal;
+  // Payment timing affects cash collection, not the repair's sale profit.
+  double get profit => estimatedCost - partsPurchaseTotal;
 
   String get jobId => 'R-${jobNumber.toString().padLeft(5, '0')}';
 

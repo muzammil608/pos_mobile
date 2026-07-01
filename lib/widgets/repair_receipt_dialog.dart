@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/theme/receipt_fonts.dart';
+import '../core/utils/app_notice.dart';
 import '../models/repair_model.dart';
 import '../services/printer/thermal_printer_service.dart';
 
@@ -36,7 +37,7 @@ class RepairReceiptDialog extends StatelessWidget {
             _PrintRepairReceiptIntent:
                 CallbackAction<_PrintRepairReceiptIntent>(
               onInvoke: (_) {
-                _print();
+                _print(context);
                 return null;
               },
             ),
@@ -70,7 +71,7 @@ class RepairReceiptDialog extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Image.asset(
-                        'assets/images/orion-pos-logo-v2.png',
+                        'assets/images/receipt_logo_white.png',
                         height: 78,
                         width: 180,
                         fit: BoxFit.contain,
@@ -171,7 +172,7 @@ class RepairReceiptDialog extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: _print,
+                              onPressed: () => _print(context),
                               style: FilledButton.styleFrom(
                                 backgroundColor: Colors.black,
                               ),
@@ -262,14 +263,31 @@ class RepairReceiptDialog extends StatelessWidget {
     );
   }
 
-  Future<void> _print() async {
-    await ThermalPrinterService.instance.printRepairReceiptAuto(
-      ThermalRepairReceiptData(
-        companyName: _repairShopName,
-        complaintPhone: _repairComplaintPhone,
-        repair: repair,
-      ),
-    );
+  Future<void> _print(BuildContext context) async {
+    try {
+      await ThermalPrinterService.instance.printRepairReceiptAuto(
+        ThermalRepairReceiptData(
+          companyName: _repairShopName,
+          complaintPhone: _repairComplaintPhone,
+          repair: repair,
+        ),
+      );
+      if (!context.mounted) return;
+      AppNotice.show(
+        context,
+        'Receipt sent to thermal printer.',
+        type: AppNoticeType.success,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      final printerMissing = e.toString().contains('No printer found');
+      AppNotice.show(
+        context,
+        printerMissing ? 'Thermal printer is not connected.' : 'Print failed',
+        subtitle: printerMissing ? null : e.toString(),
+        type: printerMissing ? AppNoticeType.warning : AppNoticeType.error,
+      );
+    }
   }
 }
 

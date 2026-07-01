@@ -476,9 +476,11 @@ class _CartItemActionsDialogState extends State<_CartItemActionsDialog> {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
-                        'Use arrow keys and Enter',
-                        style: TextStyle(
+                      Text(
+                        MediaQuery.sizeOf(context).width >= 600
+                            ? 'Use arrow keys and Enter'
+                            : 'Choose an action',
+                        style: const TextStyle(
                           fontSize: 12,
                           color: NovaColors.textTertiary,
                         ),
@@ -762,6 +764,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
 
   void _setFocusedProductIndex(int index) {
     if (!mounted) return;
+    if (MediaQuery.sizeOf(context).width < 600) {
+      if (_focusedProductIndex != -1) {
+        setState(() => _focusedProductIndex = -1);
+      }
+      return;
+    }
     setState(() {
       _focusedProductIndex = index;
       _checkoutKeyboardMode = false;
@@ -1397,34 +1405,6 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         );
       }
 
-      try {
-        await ThermalPrinterService.instance.printReceiptAuto(
-          ThermalReceiptData(
-            companyName: 'AZMAT MOBILE AND REPAIRING CENTER',
-            phone: '+92-317-7921817',
-            email: 'info@orion.com',
-            website: 'www.orion.com',
-            servedBy: auth.role,
-            customerName: _customerName.trim().isEmpty
-                ? 'Walk-in Customer'
-                : _customerName.trim(),
-            items: order.items,
-            total: order.total,
-            cash: order.tenderedAmount,
-            change: order.change,
-            tax: 0.0,
-            paymentMethod: order.paymentMethod ?? _paymentMethod,
-            orderNo: 'ORDER-${order.orderNumber}',
-            date:
-                '${order.createdAt.day}/${order.createdAt.month}/${order.createdAt.year} '
-                '${order.createdAt.hour.toString().padLeft(2, '0')}:'
-                '${order.createdAt.minute.toString().padLeft(2, '0')}',
-          ),
-        );
-      } catch (e) {
-        debugPrint('Printing skipped or failed on this platform: $e');
-      }
-
       final completedPaymentMethod = _paymentMethod;
       await cart.clear();
       _resetCheckoutForm();
@@ -1648,8 +1628,21 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       ),
     );
 
-    Navigator.pop(sheetContext);
     await _orderService?.updateStatus(orderId, 'completed');
+    if (mounted) {
+      setState(() {
+        final cached = _lastOrders;
+        if (cached != null) {
+          _lastOrders = OrderRecordSnapshot(
+            cached.docs
+                .where((cachedDoc) => cachedDoc.id != orderId)
+                .map((cachedDoc) => cachedDoc.order)
+                .toList(),
+          );
+        }
+      });
+    }
+    if (sheetContext.mounted) Navigator.pop(sheetContext);
     if (!rootContext.mounted) return;
 
     final orderNumber = (data['orderNumber'] as num?)?.toInt() ?? 0;
@@ -1667,6 +1660,39 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             '${localCreatedAt.minute.toString().padLeft(2, '0')}'
         : '';
     final servedBy = Provider.of<AuthProvider>(rootContext, listen: false).role;
+    final receiptCustomerName =
+        customerName?.isNotEmpty == true ? customerName! : 'Walk-in Customer';
+    final paymentMethod = data['paymentMethod']?.toString() ?? 'cash';
+    final receiptData = ThermalReceiptData(
+      companyName: 'AZMAT MOBILE AND REPAIRING CENTER',
+      phone: '+92-317-7921817',
+      email: 'info@orion.com',
+      website: 'www.orion.com',
+      servedBy: servedBy,
+      customerName: receiptCustomerName,
+      items: items,
+      total: total,
+      cash: tendered,
+      change: change,
+      tax: 0.0,
+      paymentMethod: paymentMethod,
+      orderNo: 'ORDER-$orderNumber',
+      date: date,
+    );
+
+    try {
+      await ThermalPrinterService.instance.printReceiptAuto(receiptData);
+    } catch (e) {
+      final printerMissing = e.toString().contains('No printer found');
+      _noticeKey.currentState?.show(
+        printerMissing
+            ? 'Thermal printer is not connected. Receipt is still available.'
+            : 'Thermal printing failed',
+        subtitle: printerMissing ? null : e.toString(),
+        type: printerMissing ? AppNoticeType.warning : AppNoticeType.error,
+      );
+    }
+    if (!rootContext.mounted) return;
 
     await showDialog(
       context: rootContext,
@@ -1677,13 +1703,13 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
         email: 'info@orion.com',
         website: 'www.orion.com',
         servedBy: servedBy,
-        customerName: customerName ?? 'Walk-in Customer',
+        customerName: receiptCustomerName,
         items: items,
         total: total,
         cash: tendered,
         change: change,
         tax: 0.0,
-        paymentMethod: data['paymentMethod'] ?? 'cash',
+        paymentMethod: paymentMethod,
         orderNo: 'ORDER-$orderNumber',
         date: date,
       ),
@@ -2132,7 +2158,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                   : AppNavigationDrawer(auth: auth, currentRoute: '/pos')),
           appBar: isMobileUI
               ? PreferredSize(
-                  preferredSize: const Size.fromHeight(88),
+                  preferredSize: const Size.fromHeight(64),
                   child: Container(
                     decoration: const BoxDecoration(
                       gradient: CafeColors.headerGradient,
@@ -2149,34 +2175,6 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}',
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const Row(
-                                  children: [
-                                    Icon(Icons.wifi,
-                                        color: Colors.white70, size: 12),
-                                    SizedBox(width: 4),
-                                    Icon(Icons.signal_cellular_4_bar,
-                                        color: Colors.white70, size: 12),
-                                    SizedBox(width: 4),
-                                    Icon(Icons.battery_std,
-                                        color: Colors.white70, size: 12),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
                           Expanded(
                             child: Container(
                               padding:
@@ -2438,6 +2436,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
             child: AppNoticeHost(
               key: _noticeKey,
               child: PosKeyboardScope(
+                enabled: !isMobileUI,
                 searchBarKey: _searchBarKey,
                 categoryChipsKey: _categoryChipsKey,
                 onNewOrder: _startNewOrder,
@@ -2503,7 +2502,9 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     }
 
                     _lastFilteredProducts = filteredProducts;
-                    if (_lastFilteredProducts.isEmpty) {
+                    final allowProductFocus =
+                        MediaQuery.sizeOf(context).width >= 600;
+                    if (!allowProductFocus || _lastFilteredProducts.isEmpty) {
                       _focusedProductIndex = -1;
                     } else if (_focusedProductIndex < 0 ||
                         _focusedProductIndex >= _lastFilteredProducts.length) {
@@ -2907,7 +2908,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                 () => _customerName = value,
                                               ),
                                               onSubmitted: (_) {
-                                                _submitCheckoutOrder();
+                                                if (_isDesktop) {
+                                                  _submitCheckoutOrder();
+                                                } else {
+                                                  FocusScope.of(context)
+                                                      .unfocus();
+                                                }
                                               },
                                               style: const TextStyle(
                                                 fontSize: 13,
@@ -2975,7 +2981,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                   () => _customerPhone = value,
                                                 ),
                                                 onSubmitted: (_) {
-                                                  _submitCheckoutOrder();
+                                                  if (_isDesktop) {
+                                                    _submitCheckoutOrder();
+                                                  } else {
+                                                    FocusScope.of(context)
+                                                        .unfocus();
+                                                  }
                                                 },
                                                 style: const TextStyle(
                                                   fontSize: 13,
@@ -3010,7 +3021,11 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                           0.0;
                                                 }),
                                                 onSubmitted: (_) {
-                                                  _submitCheckoutOrder();
+                                                  if (_isDesktop) {
+                                                    _submitCheckoutOrder();
+                                                  } else {
+                                                    _cashFocusNode.unfocus();
+                                                  }
                                                 },
                                                 style: const TextStyle(
                                                   fontSize: 13,
@@ -3800,6 +3815,8 @@ class _ProductImage extends StatelessWidget {
           fit: BoxFit.cover,
           filterQuality: FilterQuality.high,
           fadeInDuration: Duration.zero,
+          memCacheWidth: 360,
+          maxWidthDiskCache: 720,
           errorWidget: (_, __, ___) => _buildFallback(),
         ),
       );

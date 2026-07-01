@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import '../core/theme/receipt_fonts.dart';
+import '../core/utils/app_notice.dart';
+import '../services/printer/thermal_printer_service.dart';
 
 class ReceiptDialog extends StatelessWidget {
   final String companyName;
@@ -109,307 +108,40 @@ class ReceiptDialog extends StatelessWidget {
 
   Future<void> _printReceipt(BuildContext context) async {
     try {
-      final pdf = pw.Document();
-      pw.MemoryImage? logoImage;
-
-      try {
-        final logoBytes = await rootBundle.load(
-          'assets/images/orion-pos-logo-v2.png',
-        );
-        logoImage = pw.MemoryImage(logoBytes.buffer.asUint8List());
-      } catch (_) {
-        logoImage = null;
-      }
-
-      final subtotal = total - tax;
-
-      const double pageWidth = 80.0 * PdfPageFormat.mm;
-      const double pageMargin = 6.0 * PdfPageFormat.mm;
-      const double pageHeight = 400.0 * PdfPageFormat.mm;
-
-      pdf.addPage(
-        pw.Page(
-          pageFormat:
-              PdfPageFormat(pageWidth, pageHeight, marginAll: pageMargin),
-          clip: false,
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-              mainAxisSize: pw.MainAxisSize.min,
-              children: [
-                if (logoImage != null)
-                  pw.Center(
-                    child: pw.Image(
-                      logoImage,
-                      height: 48,
-                      fit: pw.BoxFit.contain,
-                    ),
-                  ),
-                if (logoImage != null) pw.SizedBox(height: 8),
-                pw.Center(
-                  child: pw.Text(
-                    companyName,
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 14,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                    textAlign: pw.TextAlign.center,
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-                pw.Center(
-                    child: pw.Text('Tel: $phone',
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                        ))),
-                pw.Center(
-                    child: pw.Text(email,
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                        ))),
-                pw.Center(
-                    child: pw.Text(website,
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                        ))),
-                pw.SizedBox(height: 8),
-                pw.Divider(),
-                _pdfInfoRow('Served by', servedBy),
-                _pdfInfoRow('Customer', customerName),
-                _pdfInfoRow('Order', orderNo),
-                _pdfInfoRow('Date', date),
-                pw.SizedBox(height: 8),
-                pw.Divider(),
-                pw.SizedBox(height: 6),
-                pw.Row(
-                  children: [
-                    pw.Expanded(
-                      flex: 5,
-                      child: pw.Text(
-                        'ITEM',
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    pw.Expanded(
-                      flex: 2,
-                      child: pw.Text(
-                        'QTY',
-                        textAlign: pw.TextAlign.center,
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    pw.Expanded(
-                      flex: 3,
-                      child: pw.Text(
-                        'TOTAL',
-                        textAlign: pw.TextAlign.right,
-                        style: pw.TextStyle(
-                          font: pw.Font.courier(),
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                pw.SizedBox(height: 6),
-                ...items.map(_pdfItemRow),
-                pw.SizedBox(height: 8),
-                pw.Divider(),
-                _pdfAmountRow('Subtotal', subtotal),
-                _pdfAmountRow('Tax', tax),
-                _pdfAmountRow('TOTAL', total, isBold: true),
-                pw.SizedBox(height: 8),
-                if (paymentMethod == 'cash') ...[
-                  _pdfAmountRow('Cash', cash),
-                  _pdfAmountRow('CHANGE', change),
-                ] else if (paymentMethod == 'partial') ...[
-                  _pdfAmountRow('Paid Now', cash),
-                  _pdfAmountRow(
-                    'DUE LATER',
-                    (total - cash).clamp(0, double.infinity).toDouble(),
-                  ),
-                ],
-                pw.SizedBox(height: 12),
-                pw.Center(
-                  child: pw.Text(
-                    'Thank you for visiting us',
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-                pw.Center(
-                  child: pw.Text(
-                    'Powered by Orion Solutions Pakistan',
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-                pw.SizedBox(height: 8),
-              ],
-            );
-          },
+      await ThermalPrinterService.instance.printReceiptAuto(
+        ThermalReceiptData(
+          companyName: companyName,
+          phone: phone,
+          email: email,
+          website: website,
+          servedBy: servedBy,
+          customerName: customerName,
+          items: items,
+          total: total,
+          cash: cash,
+          change: change,
+          tax: tax,
+          paymentMethod: paymentMethod,
+          orderNo: orderNo,
+          date: date,
         ),
       );
-
-      final bytes = await pdf.save();
-
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: 'receipt_$orderNo',
+      if (!context.mounted) return;
+      AppNotice.show(
+        context,
+        'Receipt sent to thermal printer.',
+        type: AppNoticeType.success,
       );
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Print failed: $e')),
+      final printerMissing = e.toString().contains('No printer found');
+      AppNotice.show(
+        context,
+        printerMissing ? 'Thermal printer is not connected.' : 'Print failed',
+        subtitle: printerMissing ? null : e.toString(),
+        type: printerMissing ? AppNoticeType.warning : AppNoticeType.error,
       );
     }
-  }
-
-  pw.Widget _pdfInfoRow(String label, String value) {
-    return pw.Container(
-      margin: const pw.EdgeInsets.symmetric(vertical: 1.5),
-      child: pw.Table(
-        columnWidths: {
-          0: const pw.FlexColumnWidth(3),
-          1: const pw.FlexColumnWidth(5),
-        },
-        children: [
-          pw.TableRow(
-            children: [
-              pw.Text(
-                '$label:',
-                style: pw.TextStyle(
-                  font: pw.Font.courier(),
-                  fontSize: 10,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.Text(
-                value,
-                textAlign: pw.TextAlign.right,
-                style: pw.TextStyle(
-                  font: pw.Font.courier(),
-                  fontSize: 10,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _pdfItemRow(Map<String, dynamic> item) {
-    final name = item['name']?.toString() ?? 'Item';
-    final qty = (item['qty'] as num?)?.toInt() ??
-        (item['quantity'] as num?)?.toInt() ??
-        1;
-    final unitPrice =
-        ((item['unitPrice'] ?? item['price']) as num?)?.toDouble() ?? 0.0;
-    final lineTotal = ((item['lineTotal']) as num?)?.toDouble() ??
-        (qty * unitPrice).toDouble();
-
-    return pw.Container(
-      margin: const pw.EdgeInsets.symmetric(vertical: 3),
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
-        children: [
-          pw.Text(
-            name,
-            style: pw.TextStyle(
-              font: pw.Font.courier(),
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
-            ),
-          ),
-          pw.SizedBox(height: 2),
-          pw.Table(
-            columnWidths: {
-              0: const pw.FlexColumnWidth(5),
-              1: const pw.FlexColumnWidth(2),
-              2: const pw.FlexColumnWidth(3),
-            },
-            children: [
-              pw.TableRow(
-                children: [
-                  pw.Text(
-                    'Rs ${unitPrice.toStringAsFixed(2)} each',
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 9,
-                    ),
-                  ),
-                  pw.Text(
-                    '$qty',
-                    textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 9,
-                    ),
-                  ),
-                  pw.Text(
-                    lineTotal.toStringAsFixed(2),
-                    textAlign: pw.TextAlign.right,
-                    style: pw.TextStyle(
-                      font: pw.Font.courier(),
-                      fontSize: 9,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  pw.Widget _pdfAmountRow(String label, double value, {bool isBold = false}) {
-    final style = pw.TextStyle(
-      font: pw.Font.courier(),
-      fontSize: isBold ? 11 : 10,
-      fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-    );
-
-    return pw.Container(
-      margin: const pw.EdgeInsets.symmetric(vertical: 2),
-      child: pw.Table(
-        columnWidths: {
-          0: const pw.FlexColumnWidth(1),
-          1: const pw.FlexColumnWidth(1),
-        },
-        children: [
-          pw.TableRow(
-            children: [
-              pw.Text(label, style: style),
-              pw.Text(
-                'Rs ${value.toStringAsFixed(2)}',
-                textAlign: pw.TextAlign.right,
-                style: style,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -461,6 +193,7 @@ class ReceiptWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showShortcutLabels = MediaQuery.sizeOf(context).width >= 600;
     final subtotal = total - tax;
 
     return Container(
@@ -483,7 +216,7 @@ class ReceiptWidget extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Image.asset(
-              'assets/images/orion-pos-logo-v2.png',
+              'assets/images/receipt_logo_white.png',
               height: 82,
               width: 190,
               fit: BoxFit.contain,
@@ -579,7 +312,7 @@ class ReceiptWidget extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onClose,
                   icon: const Icon(Icons.close, size: 18),
-                  label: const Text('Close (Esc)'),
+                  label: Text(showShortcutLabels ? 'Close (Esc)' : 'Close'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.black,
                     side: const BorderSide(color: Colors.black26),
@@ -592,7 +325,7 @@ class ReceiptWidget extends StatelessWidget {
                 child: ElevatedButton.icon(
                   onPressed: onPrint,
                   icon: const Icon(Icons.print, size: 18),
-                  label: const Text('Print (Enter)'),
+                  label: Text(showShortcutLabels ? 'Print (Enter)' : 'Print'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.black,
                     foregroundColor: Colors.white,

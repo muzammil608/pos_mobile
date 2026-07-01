@@ -1,4 +1,5 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -330,7 +331,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
           return SingleChildScrollView(
             physics: const ClampingScrollPhysics(),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             child: ConstrainedBox(
               constraints: BoxConstraints(
                   minHeight: constraints.maxHeight.isInfinite
@@ -451,7 +451,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 24),
         Text(
-          'ORION',
+          'SHOPFLOW',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white,
@@ -494,7 +494,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         SizedBox(height: layout.spacingAfterLogo),
         Text(
-          'ORION',
+          'SHOPFLOW',
           style: TextStyle(
             color: Colors.white,
             fontSize: layout.titleFontSize,

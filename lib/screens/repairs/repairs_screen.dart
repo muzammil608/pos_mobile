@@ -81,12 +81,6 @@ class _RepairsScreenState extends State<RepairsScreen> {
 
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
-          drawer: isDesktop
-              ? null
-              : AppNavigationDrawer(
-                  auth: auth,
-                  currentRoute: '/repairs',
-                ),
           bottomNavigationBar:
               isDesktop ? null : const AppMobileBottomNavBar(currentIndex: 4),
           appBar: AppNavigationAppBar(
@@ -171,103 +165,142 @@ class _RepairsScreenState extends State<RepairsScreen> {
       return !completedAt.isBefore(today) && completedAt.isBefore(tomorrow);
     }).fold<double>(0, (sum, repair) => sum + repair.profit);
 
+    final summary = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _SummaryCard(
+          label: 'Total jobs',
+          value: '${all.length}',
+          icon: Icons.receipt_long_rounded,
+          color: NovaColors.violet,
+        ),
+        _SummaryCard(
+          label: 'Active',
+          value: '$active',
+          icon: Icons.handyman_rounded,
+          color: NovaColors.amber,
+        ),
+        _SummaryCard(
+          label: 'Ready',
+          value: '$ready',
+          icon: Icons.task_alt_rounded,
+          color: NovaColors.teal,
+        ),
+        _SummaryCard(
+          label: 'Outstanding',
+          value: 'Rs ${outstanding.toStringAsFixed(0)}',
+          icon: Icons.account_balance_wallet_rounded,
+          color: NovaColors.danger,
+        ),
+        _SummaryCard(
+          label: "Today's received profit",
+          value: 'Rs ${completedProfit.toStringAsFixed(0)}',
+          icon: Icons.trending_up_rounded,
+          color: NovaColors.teal,
+        ),
+      ],
+    );
+
+    final search = TextField(
+      controller: _searchController,
+      onChanged: (value) => setState(() => _query = value),
+      decoration: InputDecoration(
+        hintText: 'Search job, customer, phone, device...',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: _query.isEmpty
+            ? null
+            : IconButton(
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+                icon: const Icon(Icons.close_rounded),
+              ),
+        filled: true,
+        fillColor: Colors.white,
+      ),
+    );
+    final filter = DropdownButtonFormField<String>(
+      value: _status,
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'Repair status',
+        filled: true,
+        fillColor: Colors.white,
+      ),
+      items: [
+        const DropdownMenuItem(value: 'all', child: Text('All statuses')),
+        ...RepairStatus.values.map(
+          (status) => DropdownMenuItem(
+            value: status,
+            child: Text(RepairStatus.label(status)),
+          ),
+        ),
+      ],
+      onChanged: (value) => setState(() => _status = value ?? 'all'),
+    );
+
+    Widget repairCard(int index) => _RepairCard(
+          repair: visible[index],
+          onEdit: () => _showRepairForm(repair: visible[index]),
+          onDelete: () => _deleteRepair(visible[index]),
+          onStatusChanged: (status) => _changeStatus(visible[index], status),
+          onReceipt: () => _showReceipt(visible[index]),
+        );
+
+    if (MediaQuery.sizeOf(context).width < 650) {
+      return CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+              child: summary,
+            ),
+          ),
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _PinnedRepairSearchDelegate(
+              child: Column(
+                children: [
+                  search,
+                  const SizedBox(height: 8),
+                  filter,
+                ],
+              ),
+            ),
+          ),
+          if (visible.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyState(
+                hasFilters: all.isNotEmpty,
+                onAdd: () => _showRepairForm(),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+              sliver: SliverList.separated(
+                itemCount: visible.length,
+                itemBuilder: (_, index) => repairCard(index),
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+              ),
+            ),
+        ],
+      );
+    }
+
     return Column(
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
           child: Column(
             children: [
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _SummaryCard(
-                    label: 'Total jobs',
-                    value: '${all.length}',
-                    icon: Icons.receipt_long_rounded,
-                    color: NovaColors.violet,
-                  ),
-                  _SummaryCard(
-                    label: 'Active',
-                    value: '$active',
-                    icon: Icons.handyman_rounded,
-                    color: NovaColors.amber,
-                  ),
-                  _SummaryCard(
-                    label: 'Ready',
-                    value: '$ready',
-                    icon: Icons.task_alt_rounded,
-                    color: NovaColors.teal,
-                  ),
-                  _SummaryCard(
-                    label: 'Outstanding',
-                    value: 'Rs ${outstanding.toStringAsFixed(0)}',
-                    icon: Icons.account_balance_wallet_rounded,
-                    color: NovaColors.danger,
-                  ),
-                  _SummaryCard(
-                    label: "Today's received profit",
-                    value: 'Rs ${completedProfit.toStringAsFixed(0)}',
-                    icon: Icons.trending_up_rounded,
-                    color: NovaColors.teal,
-                  ),
-                ],
-              ),
+              summary,
               const SizedBox(height: 14),
               LayoutBuilder(
                 builder: (context, constraints) {
-                  final search = TextField(
-                    controller: _searchController,
-                    onChanged: (value) => setState(() => _query = value),
-                    decoration: InputDecoration(
-                      hintText:
-                          'Search job, customer, phone, device, IMEI / serial...',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: _query.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                _searchController.clear();
-                                setState(() => _query = '');
-                              },
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                  );
-                  final filter = DropdownButtonFormField<String>(
-                    value: _status,
-                    decoration: const InputDecoration(
-                      labelText: 'Repair status',
-                      filled: true,
-                      fillColor: Colors.white,
-                    ),
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'all',
-                        child: Text('All statuses'),
-                      ),
-                      ...RepairStatus.values.map(
-                        (status) => DropdownMenuItem(
-                          value: status,
-                          child: Text(RepairStatus.label(status)),
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _status = value ?? 'all'),
-                  );
-
-                  if (constraints.maxWidth < 650) {
-                    return Column(
-                      children: [
-                        search,
-                        const SizedBox(height: 10),
-                        filter,
-                      ],
-                    );
-                  }
                   return Row(
                     children: [
                       Expanded(child: search),
@@ -290,14 +323,7 @@ class _RepairsScreenState extends State<RepairsScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
                   itemCount: visible.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, index) => _RepairCard(
-                    repair: visible[index],
-                    onEdit: () => _showRepairForm(repair: visible[index]),
-                    onDelete: () => _deleteRepair(visible[index]),
-                    onStatusChanged: (status) =>
-                        _changeStatus(visible[index], status),
-                    onReceipt: () => _showReceipt(visible[index]),
-                  ),
+                  itemBuilder: (context, index) => repairCard(index),
                 ),
         ),
       ],
@@ -1307,6 +1333,7 @@ class _RepairFormSheetState extends State<_RepairFormSheet> {
                             saleTotal: _partsSaleTotal,
                             labour: _amount('labour'),
                             total: _repairTotal,
+                            profit: _repairTotal - _partsPurchaseTotal,
                             advance: _amount('advance'),
                             balance: _balance,
                           ),
@@ -1714,14 +1741,10 @@ class _RepairCardState extends State<_RepairCard> {
                 valueColor: completed ? NovaColors.teal : null,
               ),
               _Detail(
-                label: 'Received profit',
+                label: 'Net profit',
                 value: 'Rs ${repair.profit.toStringAsFixed(0)}',
                 valueColor:
                     repair.profit >= 0 ? NovaColors.teal : NovaColors.danger,
-              ),
-              _Detail(
-                label: 'Expected profit',
-                value: 'Rs ${repair.expectedProfit.toStringAsFixed(0)}',
               ),
               _Detail(
                 label: 'Payment status',
@@ -2151,12 +2174,12 @@ class _RepairPaymentOptions extends StatelessWidget {
               ),
               _choice(
                 value: partialValue,
-                label: 'Partial payment',
+                label: 'Advance payment',
                 icon: Icons.pie_chart_outline_rounded,
               ),
               _choice(
                 value: paidFullValue,
-                label: 'Paid in full',
+                label: 'Full payment received',
                 icon: Icons.check_circle_outline_rounded,
               ),
             ],
@@ -2204,6 +2227,7 @@ class _RepairTotalsPanel extends StatelessWidget {
     required this.saleTotal,
     required this.labour,
     required this.total,
+    required this.profit,
     required this.advance,
     required this.balance,
   });
@@ -2212,6 +2236,7 @@ class _RepairTotalsPanel extends StatelessWidget {
   final double saleTotal;
   final double labour;
   final double total;
+  final double profit;
   final double advance;
   final double balance;
 
@@ -2229,9 +2254,10 @@ class _RepairTotalsPanel extends StatelessWidget {
           _row('Parts sale total', saleTotal),
           _row('Labour', labour),
           const Divider(),
-          _row('Total', total, bold: true),
-          _row('Paid now', advance),
-          _row('Balance', balance, bold: true),
+          _row('Customer total', total, bold: true),
+          _row('Net profit', profit),
+          _row('Amount received', advance),
+          _row('Balance due', balance, bold: true),
         ],
       ),
     );
@@ -2253,6 +2279,38 @@ class _RepairTotalsPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PinnedRepairSearchDelegate extends SliverPersistentHeaderDelegate {
+  const _PinnedRepairSearchDelegate({required this.child});
+
+  final Widget child;
+
+  @override
+  double get minExtent => 132;
+
+  @override
+  double get maxExtent => 132;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Material(
+      color: NovaColors.bgTertiary,
+      elevation: overlapsContent ? 2 : 0,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+        child: child,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _PinnedRepairSearchDelegate oldDelegate) =>
+      oldDelegate.child != child;
 }
 
 class _SummaryCard extends StatelessWidget {

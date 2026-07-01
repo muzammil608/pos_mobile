@@ -1151,7 +1151,7 @@ class _InventoryOrdersReportScreenState
       context: context,
       barrierDismissible: false,
       builder: (_) => ReceiptDialog(
-        companyName: 'Orion POS',
+        companyName: 'ShopFlow POS',
         phone: '+92-317-7921817',
         email: 'info@orion.com',
         website: 'www.orion.com',

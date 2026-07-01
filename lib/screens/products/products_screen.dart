@@ -21,10 +21,20 @@ import '../../widgets/responsive_layout.dart';
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return null;
   final oriented = img.bakeOrientation(decoded);
+  final longestSide =
+      oriented.width > oriented.height ? oriented.width : oriented.height;
+  final prepared = longestSide > 1600
+      ? img.copyResize(
+          oriented,
+          width: oriented.width >= oriented.height ? 1600 : null,
+          height: oriented.height > oriented.width ? 1600 : null,
+          interpolation: img.Interpolation.cubic,
+        )
+      : oriented;
   return (
-    bytes: Uint8List.fromList(img.encodeJpg(oriented, quality: 100)),
-    width: oriented.width,
-    height: oriented.height,
+    bytes: Uint8List.fromList(img.encodeJpg(prepared, quality: 84)),
+    width: prepared.width,
+    height: prepared.height,
   );
 }
 
@@ -44,6 +54,7 @@ class ProductsScreen extends StatefulWidget {
 
 class _ProductsScreenState extends State<ProductsScreen> {
   final TextEditingController _searchController = TextEditingController();
+  OverlayEntry? _productNoticeEntry;
   String _searchQuery = '';
   String _selectedCategory = 'All';
   bool _openedInitialAddForm = false;
@@ -60,6 +71,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   @override
   void dispose() {
+    _productNoticeEntry?.remove();
+    _productNoticeEntry = null;
     _searchController.dispose();
     super.dispose();
   }
@@ -68,33 +81,105 @@ class _ProductsScreenState extends State<ProductsScreen> {
     required BuildContext context,
     required String message,
     required bool isError,
+    IconData? icon,
+    Color? backgroundColor,
   }) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final isDesktop = screenWidth >= ResponsiveLayout.desktopBreakpoint;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-              size: 18,
+    if (!isError) {
+      final screenWidth = MediaQuery.sizeOf(context).width;
+      final isDesktop = screenWidth >= ResponsiveLayout.desktopBreakpoint;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon ?? Icons.check_circle_outline,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Flexible(child: Text(message)),
+              ],
             ),
-            const SizedBox(width: 8),
-            Flexible(child: Text(message)),
-          ],
+            backgroundColor: backgroundColor ?? CafeColors.olive,
+            behavior: SnackBarBehavior.floating,
+            width: isDesktop ? 420 : null,
+            margin: isDesktop
+                ? null
+                : const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      return;
+    }
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _productNoticeEntry?.remove();
+
+    late final OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (overlayContext) => Positioned(
+        top: MediaQuery.paddingOf(overlayContext).top + 16,
+        left: 16,
+        right: 16,
+        child: TweenAnimationBuilder<double>(
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          tween: Tween(begin: -1, end: 0),
+          builder: (context, value, child) => Transform.translate(
+            offset: Offset(0, value * 80),
+            child: Opacity(opacity: 1 + value, child: child),
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Material(
+                color: backgroundColor ??
+                    (isError ? const Color(0xFFE53935) : CafeColors.olive),
+                elevation: 12,
+                shadowColor: Colors.black38,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        icon ??
+                            (isError
+                                ? Icons.error_outline
+                                : Icons.check_circle_outline),
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
-        backgroundColor: isError ? const Color(0xFFE53935) : CafeColors.olive,
-        behavior: SnackBarBehavior.floating,
-        width: isDesktop ? 420 : null,
-        margin: isDesktop
-            ? null
-            : const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+    _productNoticeEntry = entry;
+    overlay.insert(entry);
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      if (_productNoticeEntry == entry) {
+        entry.remove();
+        _productNoticeEntry = null;
+      }
+    });
   }
 
   void _showProductForm(BuildContext context, {Product? product}) {
@@ -186,13 +271,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
               if (isPickingImage) return;
               if (source == ImageSource.camera) {
                 if (!supportsCamera) {
-                  ScaffoldMessenger.of(sheetContext).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Camera capture is available on Android and iOS. Use Gallery on this device.',
-                      ),
-                      behavior: SnackBarBehavior.floating,
-                    ),
+                  _showProductSnackBar(
+                    context: sheetContext,
+                    message:
+                        'Camera is not available on this device. Use Gallery instead.',
+                    isError: false,
+                    icon: Icons.no_photography_outlined,
+                    backgroundColor: const Color(0xFFF59E0B),
                   );
                   return;
                 }
@@ -223,9 +308,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
               try {
                 final image = await ImagePicker().pickImage(
                   source: source,
-                  maxWidth: 4096,
-                  maxHeight: 4096,
-                  imageQuality: 100,
+                  maxWidth: 1600,
+                  maxHeight: 1600,
+                  imageQuality: 84,
                   requestFullMetadata: false,
                 );
                 if (image == null) return;
@@ -284,454 +369,392 @@ class _ProductsScreenState extends State<ProductsScreen> {
               }
             }
 
+            final media = MediaQuery.of(sheetContext);
+            final sheetHeight = (media.size.height -
+                    media.viewInsets.bottom -
+                    media.padding.top -
+                    8)
+                .clamp(220.0, media.size.height * 0.94);
+
             return Align(
               alignment: Alignment.bottomCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 720),
                 child: Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
-                  ),
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(28)),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  gradient: CafeColors.headerGradient,
-                                  borderRadius: BorderRadius.circular(12),
+                  padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+                  child: SizedBox(
+                    height: sheetHeight,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(28)),
+                      ),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                      child: Form(
+                        key: formKey,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    gradient: CafeColors.headerGradient,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    isEdit
+                                        ? Icons.edit_rounded
+                                        : Icons.add_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
                                 ),
-                                child: Icon(
-                                  isEdit
-                                      ? Icons.edit_rounded
-                                      : Icons.add_rounded,
-                                  color: Colors.white,
-                                  size: 20,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    isEdit ? 'Edit Product' : 'Add Product',
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w800,
+                                      color: CafeColors.charcoal,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  isEdit ? 'Edit Product' : 'Add Product',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
+                                IconButton(
+                                  tooltip: 'Close',
+                                  mouseCursor: SystemMouseCursors.click,
+                                  onPressed: () => Navigator.pop(sheetContext),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
                                     color: CafeColors.charcoal,
                                   ),
                                 ),
-                              ),
-                              IconButton(
-                                tooltip: 'Close',
-                                mouseCursor: SystemMouseCursors.click,
-                                onPressed: () => Navigator.pop(sheetContext),
-                                icon: const Icon(
-                                  Icons.close_rounded,
-                                  color: CafeColors.charcoal,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight:
-                                  MediaQuery.of(sheetContext).size.height *
-                                      0.65,
+                              ],
                             ),
-                            child: Scrollbar(
-                              child: SingleChildScrollView(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(right: 8.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: NovaColors.bgSecondary,
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          border: Border.all(
-                                            color: NovaColors.borderTertiary,
+                            const SizedBox(height: 18),
+                            Expanded(
+                              child: Scrollbar(
+                                child: SingleChildScrollView(
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(right: 8.0),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: NovaColors.bgSecondary,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: NovaColors.borderTertiary,
+                                            ),
                                           ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              child: Container(
-                                                width: 84,
-                                                height: 84,
-                                                color: NovaColors.bgPrimary,
-                                                child: selectedImageBytes ==
-                                                        null
-                                                    ? product?.imageUrl == null
-                                                        ? const Icon(
-                                                            Icons
-                                                                .add_photo_alternate_outlined,
-                                                            color: NovaColors
-                                                                .violet,
-                                                            size: 32,
-                                                          )
-                                                        : CachedNetworkImage(
-                                                            imageUrl: product!
-                                                                .imageUrl!,
-                                                            cacheKey: product
-                                                                .imageCacheKey,
-                                                            fit: BoxFit.cover,
-                                                            filterQuality:
-                                                                FilterQuality
-                                                                    .high,
-                                                            errorWidget:
-                                                                (_, __, ___) =>
-                                                                    const Icon(
+                                          child: Row(
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                child: Container(
+                                                  width: 84,
+                                                  height: 84,
+                                                  color: NovaColors.bgPrimary,
+                                                  child: selectedImageBytes ==
+                                                          null
+                                                      ? product?.imageUrl ==
+                                                              null
+                                                          ? const Icon(
                                                               Icons
                                                                   .add_photo_alternate_outlined,
                                                               color: NovaColors
                                                                   .violet,
                                                               size: 32,
-                                                            ),
-                                                          )
-                                                    : Image.memory(
-                                                        selectedImageBytes!,
-                                                        fit: BoxFit.cover,
-                                                        filterQuality:
-                                                            FilterQuality.high,
-                                                        errorBuilder:
-                                                            (_, __, ___) =>
-                                                                const Icon(
-                                                          Icons
-                                                              .broken_image_outlined,
-                                                          color:
-                                                              NovaColors.danger,
-                                                          size: 32,
-                                                        ),
-                                                      ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  const Text(
-                                                    'Product image',
-                                                    style: TextStyle(
-                                                      color: NovaColors
-                                                          .textPrimary,
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                  Wrap(
-                                                    spacing: 8,
-                                                    runSpacing: 8,
-                                                    children: [
-                                                      OutlinedButton.icon(
-                                                        onPressed:
-                                                            isPickingImage
-                                                                ? null
-                                                                : () =>
-                                                                    pickProductImage(
-                                                                      ImageSource
-                                                                          .gallery,
-                                                                    ),
-                                                        icon: const Icon(
-                                                          Icons
-                                                              .photo_library_outlined,
-                                                          size: 18,
-                                                        ),
-                                                        label: const Text(
-                                                            'Gallery'),
-                                                      ),
-                                                      OutlinedButton.icon(
-                                                        onPressed:
-                                                            isPickingImage
-                                                                ? null
-                                                                : () =>
-                                                                    pickProductImage(
-                                                                      ImageSource
-                                                                          .camera,
-                                                                    ),
-                                                        icon: const Icon(
-                                                          Icons
-                                                              .photo_camera_outlined,
-                                                          size: 18,
-                                                        ),
-                                                        label: const Text(
-                                                            'Camera'),
-                                                      ),
-                                                      if (selectedImageBytes !=
-                                                          null)
-                                                        IconButton(
-                                                          tooltip:
-                                                              'Remove selected image',
-                                                          onPressed: () =>
-                                                              setSheetState(() {
-                                                            selectedImageBytes =
-                                                                null;
-                                                            selectedImageFilename =
-                                                                null;
-                                                          }),
-                                                          icon: const Icon(
+                                                            )
+                                                          : CachedNetworkImage(
+                                                              imageUrl: product!
+                                                                  .imageUrl!,
+                                                              cacheKey: product
+                                                                  .imageCacheKey,
+                                                              fit: BoxFit.cover,
+                                                              filterQuality:
+                                                                  FilterQuality
+                                                                      .high,
+                                                              errorWidget: (_,
+                                                                      __,
+                                                                      ___) =>
+                                                                  const Icon(
+                                                                Icons
+                                                                    .add_photo_alternate_outlined,
+                                                                color:
+                                                                    NovaColors
+                                                                        .violet,
+                                                                size: 32,
+                                                              ),
+                                                            )
+                                                      : Image.memory(
+                                                          selectedImageBytes!,
+                                                          fit: BoxFit.cover,
+                                                          filterQuality:
+                                                              FilterQuality
+                                                                  .high,
+                                                          errorBuilder:
+                                                              (_, __, ___) =>
+                                                                  const Icon(
                                                             Icons
-                                                                .delete_outline_rounded,
+                                                                .broken_image_outlined,
                                                             color: NovaColors
                                                                 .danger,
+                                                            size: 32,
                                                           ),
                                                         ),
-                                                    ],
-                                                  ),
-                                                ],
+                                                ),
                                               ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    const Text(
+                                                      'Product image',
+                                                      style: TextStyle(
+                                                        color: NovaColors
+                                                            .textPrimary,
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    Wrap(
+                                                      spacing: 8,
+                                                      runSpacing: 8,
+                                                      children: [
+                                                        OutlinedButton.icon(
+                                                          onPressed:
+                                                              isPickingImage
+                                                                  ? null
+                                                                  : () =>
+                                                                      pickProductImage(
+                                                                        ImageSource
+                                                                            .gallery,
+                                                                      ),
+                                                          icon: const Icon(
+                                                            Icons
+                                                                .photo_library_outlined,
+                                                            size: 18,
+                                                          ),
+                                                          label: const Text(
+                                                              'Gallery'),
+                                                          style: OutlinedButton
+                                                              .styleFrom(
+                                                            minimumSize:
+                                                                const Size(
+                                                                    112, 44),
+                                                          ),
+                                                        ),
+                                                        OutlinedButton.icon(
+                                                          onPressed:
+                                                              isPickingImage
+                                                                  ? null
+                                                                  : () =>
+                                                                      pickProductImage(
+                                                                        ImageSource
+                                                                            .camera,
+                                                                      ),
+                                                          icon: const Icon(
+                                                            Icons
+                                                                .photo_camera_outlined,
+                                                            size: 18,
+                                                          ),
+                                                          label: const Text(
+                                                              'Camera'),
+                                                          style: OutlinedButton
+                                                              .styleFrom(
+                                                            minimumSize:
+                                                                const Size(
+                                                                    112, 44),
+                                                          ),
+                                                        ),
+                                                        if (selectedImageBytes !=
+                                                            null)
+                                                          IconButton(
+                                                            tooltip:
+                                                                'Remove selected image',
+                                                            onPressed: () =>
+                                                                setSheetState(
+                                                                    () {
+                                                              selectedImageBytes =
+                                                                  null;
+                                                              selectedImageFilename =
+                                                                  null;
+                                                            }),
+                                                            icon: const Icon(
+                                                              Icons
+                                                                  .delete_outline_rounded,
+                                                              color: NovaColors
+                                                                  .danger,
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: _StyledField(
+                                                controller: modelCodeController,
+                                                label: 'Model Code',
+                                                icon: Icons.code_rounded,
+                                                validator: (v) => (v == null ||
+                                                        v.trim().isEmpty)
+                                                    ? 'Required'
+                                                    : null,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child:
+                                                  Builder(builder: (context) {
+                                                if (manualBrand) {
+                                                  return _StyledField(
+                                                    controller:
+                                                        customBrandController,
+                                                    label: 'Enter Brand',
+                                                    icon: Icons
+                                                        .branding_watermark_outlined,
+                                                    textCapitalization:
+                                                        TextCapitalization
+                                                            .words,
+                                                    validator: (value) =>
+                                                        value == null ||
+                                                                value
+                                                                    .trim()
+                                                                    .isEmpty
+                                                            ? 'Required'
+                                                            : null,
+                                                    suffixIcon: IconButton(
+                                                      tooltip:
+                                                          'Choose brand from list',
+                                                      onPressed: () {
+                                                        setSheetState(() {
+                                                          manualBrand = false;
+                                                          selectedBrand =
+                                                              'Infinix';
+                                                        });
+                                                      },
+                                                      icon: const Icon(
+                                                          Icons.list_rounded),
+                                                    ),
+                                                  );
+                                                }
+                                                return _StyledDropdown<String>(
+                                                    value: selectedBrand,
+                                                    label: 'Brand',
+                                                    icon: Icons
+                                                        .branding_watermark_outlined,
+                                                    items: brandItems
+                                                        .map((b) =>
+                                                            DropdownMenuItem(
+                                                                value: b,
+                                                                child: Text(b)))
+                                                        .toList(),
+                                                    onChanged: (v) {
+                                                      if (v == null) return;
+                                                      setSheetState(() {
+                                                        selectedBrand = v;
+                                                        if (v == 'Other') {
+                                                          manualBrand = true;
+                                                          customBrandController
+                                                              .clear();
+                                                        }
+                                                      });
+                                                    });
+                                              }),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller: modelCodeController,
-                                              label: 'Model Code',
-                                              icon: Icons.code_rounded,
-                                              validator: (v) => (v == null ||
-                                                      v.trim().isEmpty)
-                                                  ? 'Required'
-                                                  : null,
-                                            ),
+                                        const SizedBox(height: 12),
+                                        _ResponsiveProductFormRow(
+                                          first: _StyledField(
+                                            controller: nameController,
+                                            label: 'Product Name',
+                                            icon: Icons.shopping_bag_outlined,
+                                            textCapitalization:
+                                                TextCapitalization.words,
+                                            validator: (v) =>
+                                                (v == null || v.trim().isEmpty)
+                                                    ? 'Name is required'
+                                                    : null,
                                           ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Builder(builder: (context) {
-                                              if (manualBrand) {
-                                                return _StyledField(
-                                                  controller:
-                                                      customBrandController,
-                                                  label: 'Enter Brand',
-                                                  icon: Icons
-                                                      .branding_watermark_outlined,
-                                                  textCapitalization:
-                                                      TextCapitalization.words,
-                                                  validator: (value) => value ==
-                                                              null ||
-                                                          value.trim().isEmpty
-                                                      ? 'Required'
-                                                      : null,
-                                                  suffixIcon: IconButton(
-                                                    tooltip:
-                                                        'Choose brand from list',
-                                                    onPressed: () {
-                                                      setSheetState(() {
-                                                        manualBrand = false;
-                                                        selectedBrand =
-                                                            'Infinix';
-                                                      });
-                                                    },
-                                                    icon: const Icon(
-                                                        Icons.list_rounded),
-                                                  ),
-                                                );
-                                              }
-                                              return _StyledDropdown<String>(
-                                                  value: selectedBrand,
-                                                  label: 'Brand',
-                                                  icon: Icons
-                                                      .branding_watermark_outlined,
-                                                  items: brandItems
-                                                      .map((b) =>
-                                                          DropdownMenuItem(
-                                                              value: b,
-                                                              child: Text(b)))
-                                                      .toList(),
-                                                  onChanged: (v) {
-                                                    if (v == null) return;
-                                                    setSheetState(() {
-                                                      selectedBrand = v;
-                                                      if (v == 'Other') {
-                                                        manualBrand = true;
-                                                        customBrandController
-                                                            .clear();
-                                                      }
-                                                    });
-                                                  });
-                                            }),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller: nameController,
-                                              label: 'Product Name',
-                                              icon: Icons.shopping_bag_outlined,
-                                              textCapitalization:
-                                                  TextCapitalization.words,
-                                              validator: (v) => (v == null ||
-                                                      v.trim().isEmpty)
-                                                  ? 'Name is required'
-                                                  : null,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Builder(builder: (context) {
-                                              final qualityTierItems = [
-                                                "Normal Copy",
-                                                "Icon Quality",
-                                                "Mabroor",
-                                                "Original Pull"
-                                              ];
-                                              if (selectedQualityTier
-                                                      .isNotEmpty &&
-                                                  !qualityTierItems.contains(
-                                                      selectedQualityTier)) {
-                                                qualityTierItems
-                                                    .add(selectedQualityTier);
-                                              }
-                                              return _StyledDropdown<String>(
-                                                value: selectedQualityTier,
-                                                label: 'Quality Tier',
-                                                icon:
-                                                    Icons.high_quality_outlined,
-                                                items: qualityTierItems
-                                                    .map((q) =>
-                                                        DropdownMenuItem(
-                                                            value: q,
-                                                            child: Text(q)))
-                                                    .toList(),
-                                                onChanged: (v) {
-                                                  if (v != null) {
-                                                    setSheetState(() =>
-                                                        selectedQualityTier =
-                                                            v);
-                                                  }
-                                                },
-                                              );
-                                            }),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller:
-                                                  purchasePriceController,
-                                              label:
-                                                  'Purchase Price (Wholesale)',
-                                              icon: Icons
-                                                  .shopping_cart_checkout_rounded,
-                                              prefixText: 'Rs ',
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                  decimal: true),
-                                              validator: (v) {
-                                                if (v == null ||
-                                                    v.trim().isEmpty) {
-                                                  return 'Required';
+                                          second: Builder(builder: (context) {
+                                            final qualityTierItems = [
+                                              "Normal Copy",
+                                              "Icon Quality",
+                                              "Mabroor",
+                                              "Original Pull"
+                                            ];
+                                            if (selectedQualityTier
+                                                    .isNotEmpty &&
+                                                !qualityTierItems.contains(
+                                                    selectedQualityTier)) {
+                                              qualityTierItems
+                                                  .add(selectedQualityTier);
+                                            }
+                                            return _StyledDropdown<String>(
+                                              value: selectedQualityTier,
+                                              label: 'Quality Tier',
+                                              icon: Icons.high_quality_outlined,
+                                              items: qualityTierItems
+                                                  .map((q) => DropdownMenuItem(
+                                                      value: q, child: Text(q)))
+                                                  .toList(),
+                                              onChanged: (v) {
+                                                if (v != null) {
+                                                  setSheetState(() =>
+                                                      selectedQualityTier = v);
                                                 }
-                                                if (double.tryParse(v.trim()) ==
-                                                    null) {
-                                                  return 'Invalid';
-                                                }
-                                                return null;
                                               },
-                                            ),
-                                          ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller: priceController,
-                                              label: 'Sale Price (Retail)',
-                                              icon: Icons.payments_outlined,
-                                              prefixText: 'Rs ',
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                  decimal: true),
-                                              validator: (v) {
-                                                if (v == null ||
-                                                    v.trim().isEmpty) {
-                                                  return 'Required';
-                                                }
-                                                if (double.tryParse(v.trim()) ==
-                                                    null) {
-                                                  return 'Invalid';
-                                                }
-                                                return null;
-                                              },
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Material(
-                                        color: Colors.transparent,
-                                        child: SwitchListTile.adaptive(
-                                          contentPadding: EdgeInsets.zero,
-                                          value: allowBargain,
-                                          activeColor: NovaColors.violet,
-                                          title: const Text(
-                                            'Allow bargaining',
-                                            style: TextStyle(
-                                              color: NovaColors.textPrimary,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          subtitle: const Text(
-                                            'Cashiers can enter a negotiated sale price.',
-                                          ),
-                                          onChanged: (value) => setSheetState(
-                                            () => allowBargain = value,
-                                          ),
+                                            );
+                                          }),
                                         ),
-                                      ),
-                                      if (allowBargain) ...[
-                                        const SizedBox(height: 8),
+                                        const SizedBox(height: 12),
                                         Row(
                                           children: [
                                             Expanded(
                                               child: _StyledField(
                                                 controller:
-                                                    minSalePriceController,
-                                                label: 'Minimum Sale Price',
-                                                icon: Icons.price_check_rounded,
+                                                    purchasePriceController,
+                                                label:
+                                                    'Purchase Price (Wholesale)',
+                                                icon: Icons
+                                                    .shopping_cart_checkout_rounded,
                                                 prefixText: 'Rs ',
                                                 keyboardType:
                                                     const TextInputType
                                                         .numberWithOptions(
-                                                  decimal: true,
-                                                ),
+                                                        decimal: true),
                                                 validator: (v) {
-                                                  final value = double.tryParse(
-                                                    v?.trim() ?? '',
-                                                  );
-                                                  if ((v?.trim().isNotEmpty ??
-                                                          false) &&
-                                                      value == null) {
+                                                  if (v == null ||
+                                                      v.trim().isEmpty) {
+                                                    return 'Required';
+                                                  }
+                                                  if (double.tryParse(
+                                                          v.trim()) ==
+                                                      null) {
                                                     return 'Invalid';
                                                   }
                                                   return null;
@@ -741,27 +764,23 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             const SizedBox(width: 10),
                                             Expanded(
                                               child: _StyledField(
-                                                controller:
-                                                    maxDiscountController,
-                                                label: 'Max Discount',
-                                                icon: Icons.percent_rounded,
-                                                suffixText: '%',
+                                                controller: priceController,
+                                                label: 'Sale Price (Retail)',
+                                                icon: Icons.payments_outlined,
+                                                prefixText: 'Rs ',
                                                 keyboardType:
                                                     const TextInputType
                                                         .numberWithOptions(
-                                                  decimal: true,
-                                                ),
+                                                        decimal: true),
                                                 validator: (v) {
                                                   if (v == null ||
                                                       v.trim().isEmpty) {
-                                                    return null;
+                                                    return 'Required';
                                                   }
-                                                  final value =
-                                                      double.tryParse(v.trim());
-                                                  if (value == null ||
-                                                      value < 0 ||
-                                                      value > 100) {
-                                                    return 'Use 0 to 100';
+                                                  if (double.tryParse(
+                                                          v.trim()) ==
+                                                      null) {
+                                                    return 'Invalid';
                                                   }
                                                   return null;
                                                 },
@@ -769,281 +788,378 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                             ),
                                           ],
                                         ),
-                                      ],
-                                      const SizedBox(height: 12),
-                                      Builder(builder: (context) {
-                                        final categoryItems = [
-                                          "panels",
-                                          "chargers",
-                                          "cables",
-                                          "covers",
-                                          "Audio",
-                                          "Power",
-                                          "Protection",
-                                          "Mounts & Gear"
-                                        ];
-                                        if (selectedCategory.isNotEmpty &&
-                                            !categoryItems
-                                                .contains(selectedCategory)) {
-                                          categoryItems.add(selectedCategory);
-                                        }
-                                        return _StyledDropdown<String>(
-                                          value: selectedCategory,
-                                          label: 'Category',
-                                          icon: Icons.category_outlined,
-                                          items: categoryItems
-                                              .map((c) => DropdownMenuItem(
-                                                  value: c, child: Text(c)))
-                                              .toList(),
-                                          onChanged: (v) {
-                                            if (v != null) {
-                                              setSheetState(
-                                                  () => selectedCategory = v);
-                                            }
-                                          },
-                                        );
-                                      }),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller: stockController,
-                                              label: 'Stock Qty',
-                                              icon: Icons.inventory_2_outlined,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              onTap: !isEdit
-                                                  ? () {
-                                                      if (stockController
-                                                              .text ==
-                                                          '0') {
-                                                        stockController.clear();
-                                                      }
-                                                    }
-                                                  : null,
+                                        const SizedBox(height: 12),
+                                        Material(
+                                          color: Colors.transparent,
+                                          child: SwitchListTile.adaptive(
+                                            contentPadding: EdgeInsets.zero,
+                                            value: allowBargain,
+                                            activeColor: NovaColors.violet,
+                                            title: const Text(
+                                              'Allow bargaining',
+                                              style: TextStyle(
+                                                color: NovaColors.textPrimary,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            subtitle: const Text(
+                                              'Cashiers can enter a negotiated sale price.',
+                                            ),
+                                            onChanged: (value) => setSheetState(
+                                              () => allowBargain = value,
                                             ),
                                           ),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: _StyledField(
-                                              controller: lowStockController,
-                                              label: 'Low Alert',
-                                              icon: Icons.warning_amber_rounded,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                            ),
+                                        ),
+                                        if (allowBargain) ...[
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: _StyledField(
+                                                  controller:
+                                                      minSalePriceController,
+                                                  label: 'Minimum Sale Price',
+                                                  icon:
+                                                      Icons.price_check_rounded,
+                                                  prefixText: 'Rs ',
+                                                  keyboardType:
+                                                      const TextInputType
+                                                          .numberWithOptions(
+                                                    decimal: true,
+                                                  ),
+                                                  validator: (v) {
+                                                    final value =
+                                                        double.tryParse(
+                                                      v?.trim() ?? '',
+                                                    );
+                                                    if ((v?.trim().isNotEmpty ??
+                                                            false) &&
+                                                        value == null) {
+                                                      return 'Invalid';
+                                                    }
+                                                    return null;
+                                                  },
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: _StyledField(
+                                                  controller:
+                                                      maxDiscountController,
+                                                  label: 'Max Discount',
+                                                  icon: Icons.percent_rounded,
+                                                  suffixText: '%',
+                                                  keyboardType:
+                                                      const TextInputType
+                                                          .numberWithOptions(
+                                                    decimal: true,
+                                                  ),
+                                                  validator: (v) {
+                                                    if (v == null ||
+                                                        v.trim().isEmpty) {
+                                                      return null;
+                                                    }
+                                                    final value =
+                                                        double.tryParse(
+                                                            v.trim());
+                                                    if (value == null ||
+                                                        value < 0 ||
+                                                        value > 100) {
+                                                      return 'Use 0 to 100';
+                                                    }
+                                                    return null;
+                                                  },
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ],
-                                      ),
-                                      const SizedBox(height: 12),
-                                      _StyledField(
-                                        controller: damagedController,
-                                        label: 'Damaged',
-                                        icon: Icons.broken_image_outlined,
-                                        keyboardType: TextInputType.number,
-                                        onTap: !isEdit
-                                            ? () {
-                                                if (damagedController.text ==
-                                                    '0') {
-                                                  damagedController.clear();
-                                                }
+                                        const SizedBox(height: 12),
+                                        Builder(builder: (context) {
+                                          final categoryItems = [
+                                            "panels",
+                                            "chargers",
+                                            "cables",
+                                            "covers",
+                                            "Audio",
+                                            "Power",
+                                            "Protection",
+                                            "Mounts & Gear"
+                                          ];
+                                          if (selectedCategory.isNotEmpty &&
+                                              !categoryItems
+                                                  .contains(selectedCategory)) {
+                                            categoryItems.add(selectedCategory);
+                                          }
+                                          return _StyledDropdown<String>(
+                                            value: selectedCategory,
+                                            label: 'Category',
+                                            icon: Icons.category_outlined,
+                                            items: categoryItems
+                                                .map((c) => DropdownMenuItem(
+                                                    value: c, child: Text(c)))
+                                                .toList(),
+                                            onChanged: (v) {
+                                              if (v != null) {
+                                                setSheetState(
+                                                    () => selectedCategory = v);
                                               }
-                                            : null,
-                                      ),
-                                    ],
+                                            },
+                                          );
+                                        }),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: _StyledField(
+                                                controller: stockController,
+                                                label: 'Stock Qty',
+                                                icon:
+                                                    Icons.inventory_2_outlined,
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                onTap: !isEdit
+                                                    ? () {
+                                                        if (stockController
+                                                                .text ==
+                                                            '0') {
+                                                          stockController
+                                                              .clear();
+                                                        }
+                                                      }
+                                                    : null,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: _StyledField(
+                                                controller: lowStockController,
+                                                label: 'Low Alert',
+                                                icon:
+                                                    Icons.warning_amber_rounded,
+                                                keyboardType:
+                                                    TextInputType.number,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _StyledField(
+                                          controller: damagedController,
+                                          label: 'Damaged',
+                                          icon: Icons.broken_image_outlined,
+                                          keyboardType: TextInputType.number,
+                                          onTap: !isEdit
+                                              ? () {
+                                                  if (damagedController.text ==
+                                                      '0') {
+                                                    damagedController.clear();
+                                                  }
+                                                }
+                                              : null,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 24),
-                          Consumer<ProductProvider>(
-                            builder: (context, provider, _) {
-                              return SizedBox(
-                                width: double.infinity,
-                                height: 52,
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: provider.isLoading
-                                        ? null
-                                        : CafeColors.headerGradient,
-                                    color: provider.isLoading
-                                        ? Colors.grey[200]
-                                        : null,
-                                    borderRadius: BorderRadius.circular(14),
-                                    boxShadow: provider.isLoading
-                                        ? null
-                                        : [
-                                            BoxShadow(
-                                              color: CafeColors.flame
-                                                  .withOpacity(0.3),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                  ),
-                                  child: ElevatedButton.icon(
-                                    onPressed: provider.isLoading
-                                        ? null
-                                        : () async {
-                                            if (!formKey.currentState!
-                                                .validate()) {
-                                              return;
-                                            }
+                            const SizedBox(height: 24),
+                            Consumer<ProductProvider>(
+                              builder: (context, provider, _) {
+                                return SizedBox(
+                                  width: double.infinity,
+                                  height: 52,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: provider.isLoading
+                                          ? null
+                                          : CafeColors.headerGradient,
+                                      color: provider.isLoading
+                                          ? Colors.grey[200]
+                                          : null,
+                                      borderRadius: BorderRadius.circular(14),
+                                      boxShadow: provider.isLoading
+                                          ? null
+                                          : [
+                                              BoxShadow(
+                                                color: CafeColors.flame
+                                                    .withOpacity(0.3),
+                                                blurRadius: 10,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                    ),
+                                    child: ElevatedButton.icon(
+                                      onPressed: provider.isLoading
+                                          ? null
+                                          : () async {
+                                              if (!formKey.currentState!
+                                                  .validate()) {
+                                                return;
+                                              }
 
-                                            final name =
-                                                nameController.text.trim();
-                                            final price = double.parse(
-                                                priceController.text.trim());
-                                            final purchasePrice =
-                                                double.tryParse(
-                                                      purchasePriceController
-                                                          .text
-                                                          .trim(),
-                                                    ) ??
-                                                    0;
-                                            final minSalePrice =
-                                                double.tryParse(
-                                                      minSalePriceController
-                                                          .text
-                                                          .trim(),
-                                                    ) ??
-                                                    0;
-                                            final maxDiscountPercent =
-                                                double.tryParse(
-                                                      maxDiscountController.text
-                                                          .trim(),
-                                                    ) ??
-                                                    0;
-                                            final stockQty = int.tryParse(
-                                                    stockController.text
-                                                        .trim()) ??
-                                                0;
-                                            final lowStockThreshold =
-                                                int.tryParse(lowStockController
-                                                        .text
-                                                        .trim()) ??
-                                                    5;
-                                            final damagedQty = int.tryParse(
-                                                    damagedController.text
-                                                        .trim()) ??
-                                                0;
-                                            final modelCode =
-                                                modelCodeController.text.trim();
-                                            final brand = manualBrand
-                                                ? customBrandController.text
-                                                    .trim()
-                                                : selectedBrand;
+                                              final name =
+                                                  nameController.text.trim();
+                                              final price = double.parse(
+                                                  priceController.text.trim());
+                                              final purchasePrice =
+                                                  double.tryParse(
+                                                        purchasePriceController
+                                                            .text
+                                                            .trim(),
+                                                      ) ??
+                                                      0;
+                                              final minSalePrice =
+                                                  double.tryParse(
+                                                        minSalePriceController
+                                                            .text
+                                                            .trim(),
+                                                      ) ??
+                                                      0;
+                                              final maxDiscountPercent =
+                                                  double.tryParse(
+                                                        maxDiscountController
+                                                            .text
+                                                            .trim(),
+                                                      ) ??
+                                                      0;
+                                              final stockQty = int.tryParse(
+                                                      stockController.text
+                                                          .trim()) ??
+                                                  0;
+                                              final lowStockThreshold =
+                                                  int.tryParse(
+                                                          lowStockController
+                                                              .text
+                                                              .trim()) ??
+                                                      5;
+                                              final damagedQty = int.tryParse(
+                                                      damagedController.text
+                                                          .trim()) ??
+                                                  0;
+                                              final modelCode =
+                                                  modelCodeController.text
+                                                      .trim();
+                                              final brand = manualBrand
+                                                  ? customBrandController.text
+                                                      .trim()
+                                                  : selectedBrand;
 
-                                            String? error;
-                                            if (isEdit) {
-                                              error =
-                                                  await provider.updateProduct(
-                                                id: product.id,
-                                                name: name,
-                                                price: price,
-                                                purchasePrice: purchasePrice,
-                                                minSalePrice: minSalePrice,
-                                                allowBargain: allowBargain,
-                                                maxDiscountPercent:
-                                                    maxDiscountPercent,
-                                                category: selectedCategory,
-                                                modelCode: modelCode,
-                                                brand: brand,
-                                                qualityTier:
-                                                    selectedQualityTier,
-                                                stockQty: stockQty,
-                                                lowStockThreshold:
-                                                    lowStockThreshold,
-                                                damagedQty: damagedQty,
-                                                imageBytes: selectedImageBytes,
-                                                imageFilename:
-                                                    selectedImageFilename,
-                                              );
-                                            } else {
-                                              error =
-                                                  await provider.createProduct(
-                                                name: name,
-                                                price: price,
-                                                purchasePrice: purchasePrice,
-                                                minSalePrice: minSalePrice,
-                                                allowBargain: allowBargain,
-                                                maxDiscountPercent:
-                                                    maxDiscountPercent,
-                                                category: selectedCategory,
-                                                modelCode: modelCode,
-                                                brand: brand,
-                                                qualityTier:
-                                                    selectedQualityTier,
-                                                stockQty: stockQty,
-                                                lowStockThreshold:
-                                                    lowStockThreshold,
-                                                damagedQty: damagedQty,
-                                                imageBytes: selectedImageBytes,
-                                                imageFilename:
-                                                    selectedImageFilename,
-                                              );
-                                            }
+                                              String? error;
+                                              if (isEdit) {
+                                                error = await provider
+                                                    .updateProduct(
+                                                  id: product.id,
+                                                  name: name,
+                                                  price: price,
+                                                  purchasePrice: purchasePrice,
+                                                  minSalePrice: minSalePrice,
+                                                  allowBargain: allowBargain,
+                                                  maxDiscountPercent:
+                                                      maxDiscountPercent,
+                                                  category: selectedCategory,
+                                                  modelCode: modelCode,
+                                                  brand: brand,
+                                                  qualityTier:
+                                                      selectedQualityTier,
+                                                  stockQty: stockQty,
+                                                  lowStockThreshold:
+                                                      lowStockThreshold,
+                                                  damagedQty: damagedQty,
+                                                  imageBytes:
+                                                      selectedImageBytes,
+                                                  imageFilename:
+                                                      selectedImageFilename,
+                                                );
+                                              } else {
+                                                error = await provider
+                                                    .createProduct(
+                                                  name: name,
+                                                  price: price,
+                                                  purchasePrice: purchasePrice,
+                                                  minSalePrice: minSalePrice,
+                                                  allowBargain: allowBargain,
+                                                  maxDiscountPercent:
+                                                      maxDiscountPercent,
+                                                  category: selectedCategory,
+                                                  modelCode: modelCode,
+                                                  brand: brand,
+                                                  qualityTier:
+                                                      selectedQualityTier,
+                                                  stockQty: stockQty,
+                                                  lowStockThreshold:
+                                                      lowStockThreshold,
+                                                  damagedQty: damagedQty,
+                                                  imageBytes:
+                                                      selectedImageBytes,
+                                                  imageFilename:
+                                                      selectedImageFilename,
+                                                );
+                                              }
 
-                                            if (!sheetContext.mounted) return;
-                                            if (error != null) {
+                                              if (!sheetContext.mounted) return;
+                                              if (error != null) {
+                                                _showProductSnackBar(
+                                                  context: sheetContext,
+                                                  message: error,
+                                                  isError: true,
+                                                );
+                                                return;
+                                              }
+                                              Navigator.pop(sheetContext);
                                               _showProductSnackBar(
-                                                context: sheetContext,
-                                                message: error,
-                                                isError: true,
+                                                context: context,
+                                                message: isEdit
+                                                    ? 'Product updated'
+                                                    : 'Product added',
+                                                isError: false,
                                               );
-                                              return;
-                                            }
-                                            Navigator.pop(sheetContext);
-                                            _showProductSnackBar(
-                                              context: context,
-                                              message: isEdit
-                                                  ? 'Product updated'
-                                                  : 'Product added',
-                                              isError: false,
-                                            );
-                                          },
-                                    icon: provider.isLoading
-                                        ? const SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
+                                            },
+                                      icon: provider.isLoading
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : Icon(
+                                              isEdit
+                                                  ? Icons.save_rounded
+                                                  : Icons.add_rounded,
                                               color: Colors.white,
                                             ),
-                                          )
-                                        : Icon(
-                                            isEdit
-                                                ? Icons.save_rounded
-                                                : Icons.add_rounded,
-                                            color: Colors.white,
-                                          ),
-                                    label: Text(
-                                      provider.isLoading
-                                          ? (isEdit ? 'Saving...' : 'Adding...')
-                                          : (isEdit
-                                              ? 'Save Changes'
-                                              : 'Add Product'),
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
+                                      label: Text(
+                                        provider.isLoading
+                                            ? (isEdit
+                                                ? 'Saving...'
+                                                : 'Adding...')
+                                            : (isEdit
+                                                ? 'Save Changes'
+                                                : 'Add Product'),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                        ),
                                       ),
-                                    ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.transparent,
+                                        shadowColor: Colors.transparent,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1208,12 +1324,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
-          drawer: AppNavigationShell.isDesktop(context)
-              ? null
-              : AppNavigationDrawer(
-                  auth: auth,
-                  currentRoute: widget.inventoryMode ? '/inventory' : '',
-                ),
           appBar: AppNavigationAppBar(
             title: widget.inventoryMode ? 'Inventory Products' : 'Products',
             icon: widget.inventoryMode
@@ -1634,6 +1744,36 @@ class _ProductsScreenState extends State<ProductsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ResponsiveProductFormRow extends StatelessWidget {
+  const _ResponsiveProductFormRow({
+    required this.first,
+    required this.second,
+  });
+
+  final Widget first;
+  final Widget second;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(
+            children: [first, const SizedBox(height: 12), second],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: first),
+            const SizedBox(width: 10),
+            Expanded(child: second),
+          ],
+        );
+      },
     );
   }
 }
@@ -2174,6 +2314,8 @@ class _StyledDropdown<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     return DropdownButtonFormField<T>(
       value: value,
+      isExpanded: true,
+      iconSize: 20,
       items: items,
       onChanged: onChanged,
       validator: validator,
@@ -2182,7 +2324,8 @@ class _StyledDropdown<T> extends StatelessWidget {
         labelText: label,
         labelStyle: TextStyle(
             color: CafeColors.charcoal.withOpacity(0.55), fontSize: 13),
-        prefixIcon: Icon(icon, color: CafeColors.flame, size: 20),
+        prefixIcon: Icon(icon, color: CafeColors.flame, size: 19),
+        prefixIconConstraints: const BoxConstraints(minWidth: 40),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: CafeColors.flame.withOpacity(0.2)),
@@ -2204,7 +2347,7 @@ class _StyledDropdown<T> extends StatelessWidget {
           borderSide: const BorderSide(color: Color(0xFFE53935), width: 1.5),
         ),
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       ),
     );
   }

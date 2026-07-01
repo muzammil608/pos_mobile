@@ -1,6 +1,6 @@
-# pos_system
+# ShopFlow POS
 
-POS System (Flutter + PocketBase).
+ShopFlow POS (Flutter + PocketBase).
 
 ## Local PocketBase
 

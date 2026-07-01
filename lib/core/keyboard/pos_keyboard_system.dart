@@ -306,6 +306,7 @@ class _UndoEntry {
 
 class PosKeyboardScope extends StatefulWidget {
   final Widget child;
+  final bool enabled;
   final GlobalKey<PosSearchBarState>? searchBarKey;
   final GlobalKey<PosCategoryChipsState>? categoryChipsKey;
   final VoidCallback? onNewOrder;
@@ -331,6 +332,7 @@ class PosKeyboardScope extends StatefulWidget {
   const PosKeyboardScope({
     super.key,
     required this.child,
+    this.enabled = true,
     this.searchBarKey,
     this.categoryChipsKey,
     this.onNewOrder,
@@ -361,12 +363,27 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
   @override
   void initState() {
     super.initState();
-    HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    if (widget.enabled) {
+      HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PosKeyboardScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled == widget.enabled) return;
+    if (widget.enabled) {
+      HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    } else {
+      HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    }
   }
 
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    if (widget.enabled) {
+      HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    }
     super.dispose();
   }
 
@@ -529,6 +546,7 @@ class _PosKeyboardScopeState extends State<PosKeyboardScope> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.enabled) return widget.child;
     return Shortcuts(
       shortcuts: PosShortcuts.posScreen,
       child: Actions(
@@ -693,6 +711,7 @@ class CheckoutKeyboardScope extends StatefulWidget {
 
   final ValueChanged<String>? onSelectPaymentMethod;
   final bool autofocusCash;
+  final bool enabled;
 
   const CheckoutKeyboardScope({
     super.key,
@@ -710,6 +729,7 @@ class CheckoutKeyboardScope extends StatefulWidget {
     this.onFocusCustomerPhone,
     this.onSelectPaymentMethod,
     this.autofocusCash = true,
+    this.enabled = true,
   });
 
   @override
@@ -722,17 +742,32 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
   @override
   void initState() {
     super.initState();
-    HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    if (widget.enabled) {
+      HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.autofocusCash) {
+      if (mounted && widget.enabled && widget.autofocusCash) {
         widget.cashFocusNode?.requestFocus();
       }
     });
   }
 
   @override
+  void didUpdateWidget(covariant CheckoutKeyboardScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled == widget.enabled) return;
+    if (widget.enabled) {
+      HardwareKeyboard.instance.addHandler(_handleHardwareKey);
+    } else {
+      HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    }
+  }
+
+  @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    if (widget.enabled) {
+      HardwareKeyboard.instance.removeHandler(_handleHardwareKey);
+    }
     super.dispose();
   }
 
@@ -850,6 +885,7 @@ class _CheckoutKeyboardScopeState extends State<CheckoutKeyboardScope> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.enabled) return widget.child;
     return Shortcuts(
       shortcuts: _checkoutShortcuts,
       child: Actions(

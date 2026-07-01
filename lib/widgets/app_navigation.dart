@@ -218,7 +218,7 @@ class AppNavigationDrawer extends StatelessWidget {
                           padding: const EdgeInsets.all(4),
                           child: ClipOval(
                             child: Image.asset(
-                              'assets/images/orion-pos-logo-v2.png',
+                              'assets/images/app_icon.png',
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
                                 return const Icon(
@@ -252,7 +252,7 @@ class AppNavigationDrawer extends StatelessWidget {
                             padding: const EdgeInsets.all(4),
                             child: ClipOval(
                               child: Image.asset(
-                                'assets/images/orion-pos-logo-v2.png',
+                                'assets/images/app_icon.png',
                                 fit: BoxFit.cover,
                                 errorBuilder: (context, error, stackTrace) {
                                   return const Icon(
@@ -271,7 +271,7 @@ class AppNavigationDrawer extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'Orion POS',
+                              'ShopFlow POS',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 20,

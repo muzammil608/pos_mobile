@@ -7,7 +7,6 @@ import '../../core/utils/app_notice.dart';
 import '../../core/utils/pakistan_phone.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
-import '../../services/printer/thermal_printer_service.dart';
 import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
 import '../../services/pocketbase/product_service.dart';
@@ -673,34 +672,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         );
       }
 
-      try {
-        await ThermalPrinterService.instance.printReceiptAuto(
-          ThermalReceiptData(
-            companyName: 'Orion POS',
-            phone: '+92-317-7921817',
-            email: 'info@orion.com',
-            website: 'www.orion.com',
-            servedBy: auth.role,
-            customerName: _customerName.trim().isEmpty
-                ? 'Walk-in Customer'
-                : _customerName.trim(),
-            items: order.items,
-            total: order.total,
-            cash: order.tenderedAmount,
-            change: order.change,
-            tax: 0.0,
-            paymentMethod: order.paymentMethod ?? _paymentMethod,
-            orderNo: 'ORDER-${order.orderNumber}',
-            date:
-                '${order.createdAt.day}/${order.createdAt.month}/${order.createdAt.year} '
-                '${order.createdAt.hour.toString().padLeft(2, '0')}:'
-                '${order.createdAt.minute.toString().padLeft(2, '0')}',
-          ),
-        );
-      } catch (e) {
-        debugPrint('Printing skipped or failed on this platform: $e');
-      }
-
       cart.clear();
 
       if (mounted) {
@@ -875,6 +846,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   final allProducts = snapshot.data ?? [];
 
                   return CheckoutKeyboardScope(
+                    enabled: AppNavigationShell.isDesktop(context),
                     cashController: _cashController,
                     cashFocusNode: _cashFocus,
                     shortcutFocusNode: _checkoutShortcutFocus,

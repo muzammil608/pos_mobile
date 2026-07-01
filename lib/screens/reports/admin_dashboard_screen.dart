@@ -562,41 +562,48 @@ class _QuickActionsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _QuickActionCard(
-            icon: Icons.point_of_sale_rounded,
-            label: 'POS',
-            subtitle: 'Order Station',
-            color: NovaColors.violet,
-            bgColor: NovaColors.violetLight,
-            onTap: () => Navigator.pushNamed(context, '/pos'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionCard(
-            icon: Icons.warehouse_rounded,
-            label: 'Inventory',
-            subtitle: 'Reports & Stock',
-            color: NovaColors.teal,
-            bgColor: NovaColors.tealLight,
-            onTap: () => Navigator.pushNamed(context, '/inventory'),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _QuickActionCard(
-            icon: Icons.badge_rounded,
-            label: 'Employees',
-            subtitle: 'Manage Staff',
-            color: NovaColors.rose,
-            bgColor: NovaColors.roseLight,
-            onTap: () => Navigator.pushNamed(context, '/employees'),
-          ),
-        ),
-      ],
+    final cards = [
+      _QuickActionCard(
+        icon: Icons.point_of_sale_rounded,
+        label: 'POS',
+        subtitle: 'Order Station',
+        color: NovaColors.violet,
+        bgColor: NovaColors.violetLight,
+        onTap: () => Navigator.pushNamed(context, '/pos'),
+      ),
+      _QuickActionCard(
+        icon: Icons.warehouse_rounded,
+        label: 'Inventory',
+        subtitle: 'Reports & Stock',
+        color: NovaColors.teal,
+        bgColor: NovaColors.tealLight,
+        onTap: () => Navigator.pushNamed(context, '/inventory'),
+      ),
+      _QuickActionCard(
+        icon: Icons.badge_rounded,
+        label: 'Employees',
+        subtitle: 'Manage Staff',
+        color: NovaColors.rose,
+        bgColor: NovaColors.roseLight,
+        onTap: () => Navigator.pushNamed(context, '/employees'),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = isDesktop
+            ? 3
+            : constraints.maxWidth >= 520
+                ? 2
+                : 1;
+        final width = (constraints.maxWidth - ((columns - 1) * 12)) / columns;
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children:
+              cards.map((card) => SizedBox(width: width, child: card)).toList(),
+        );
+      },
     );
   }
 }
