@@ -25,9 +25,8 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
-UsedUserAreasWarning=no
 OutputDir={#OutputDir}
-OutputBaseFilename=shopflow.setup
+OutputBaseFilename=ShopFlow_POS_Setup_v{#MyAppVersion}
 
 ; Automatically close running app/backend during updates
 CloseApplications=yes
@@ -47,52 +46,8 @@ Source: "{#BuildReleaseDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignorever
 Source: "{#BuildReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-
-[InstallDelete]
-Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{localappdata}\com.example\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\com.example\{#MyAppName}"
-Type: filesandordirs; Name: "{localappdata}\com.example"
-Type: filesandordirs; Name: "{userappdata}\com.example"
-
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
-Type: filesandordirs; Name: "{userappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\com.example\{#MyAppName}"
-Type: filesandordirs; Name: "{localappdata}\com.example\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\com.example"
-Type: filesandordirs; Name: "{localappdata}\com.example"
-
-[Code]
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  InstallId: String;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    InstallId := GetDateTimeString('yyyy-mm-dd_hh-nn-ss', #0, #0);
-    SaveStringToFile(ExpandConstant('{app}\install_id.txt'), InstallId, False);
-  end;
-end;
-
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usPostUninstall then
-  begin
-    DelTree(ExpandConstant('{app}'), True, True, True);
-    DelTree(ExpandConstant('{userappdata}\{#MyAppName}'), True, True, True);
-    DelTree(ExpandConstant('{localappdata}\{#MyAppName}'), True, True, True);
-    DelTree(ExpandConstant('{userappdata}\com.example\{#MyAppName}'), True, True, True);
-    DelTree(ExpandConstant('{localappdata}\com.example\{#MyAppName}'), True, True, True);
-    DelTree(ExpandConstant('{userappdata}\com.example'), True, True, True);
-    DelTree(ExpandConstant('{localappdata}\com.example'), True, True, True);
-  end;
-end;
-
