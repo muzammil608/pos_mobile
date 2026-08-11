@@ -194,93 +194,79 @@ class _DashboardContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        StreamBuilder<double>(
-          stream: reportService.getTodayRevenue(),
+        StreamBuilder<TodayOrderSummary>(
+          stream: reportService.getTodayOrderSummary(),
           builder: (context, snapshot) {
-            final revenue = snapshot.data ?? 0.0;
-            final revenueLoading = !snapshot.hasData;
+            final summary = snapshot.data;
+            final isLoading = !snapshot.hasData;
+            final revenue = summary?.revenue ?? 0.0;
+            final ordersToday = summary?.orderCount ?? 0;
+            final flowStats = summary?.flowStats ??
+                const {
+                  'total': 0,
+                  'pending': 0,
+                  'ready': 0,
+                  'completed': 0,
+                };
 
-            return StreamBuilder<int>(
-              stream: reportService.getTodayOrderCount(),
-              builder: (context, ordersSnapshot) {
-                final ordersToday = ordersSnapshot.data ?? 0;
-                final ordersLoading = !ordersSnapshot.hasData;
+            final totalOrders = flowStats['total'] ?? 0;
+            final completedOrders = flowStats['completed'] ?? 0;
+            final satisfaction = totalOrders == 0
+                ? 0.0
+                : (completedOrders / totalOrders) * 100;
+            final satisfactionDelta = totalOrders == 0
+                ? 'No orders yet today'
+                : '$completedOrders of $totalOrders completed';
 
-                return StreamBuilder<Map<String, int>>(
-                  stream: reportService.getTodayOrderFlowStats(),
-                  builder: (context, flowSnapshot) {
-                    final flowStats = flowSnapshot.data ??
-                        const {
-                          'total': 0,
-                          'pending': 0,
-                          'ready': 0,
-                          'completed': 0,
-                        };
-                    final flowLoading = !flowSnapshot.hasData;
-                    final totalOrders = flowStats['total'] ?? 0;
-                    final completedOrders = flowStats['completed'] ?? 0;
-                    final satisfaction = totalOrders == 0
-                        ? 0.0
-                        : (completedOrders / totalOrders) * 100;
-                    final satisfactionDelta = totalOrders == 0
-                        ? 'No orders yet today'
-                        : '$completedOrders of $totalOrders completed';
-
-                    final cards = [
-                      _StatCard(
-                        icon: Icons.trending_up_rounded,
-                        iconColor: NovaColors.violet,
-                        label: "Today's Revenue",
-                        value: revenueLoading
-                            ? '—'
-                            : 'Rs ${revenue.toStringAsFixed(0)}',
-                        delta: 'Live total',
-                        deltaUp: true,
-                        isLoading: revenueLoading,
-                        fullWidth: !isDesktop,
-                      ),
-                      _StatCard(
-                        icon: Icons.receipt_long_rounded,
-                        iconColor: NovaColors.teal,
-                        label: 'Orders Today',
-                        value: ordersLoading ? '—' : '$ordersToday',
-                        delta: 'Updated live',
-                        deltaUp: true,
-                        isLoading: ordersLoading,
-                        fullWidth: !isDesktop,
-                      ),
-                      StreamBuilder<double>(
-                        stream: reportService.getTodayRepairProfit(),
-                        builder: (context, profitSnapshot) {
-                          final profit = profitSnapshot.data ?? 0;
-                          final loading = !profitSnapshot.hasData;
-                          return _StatCard(
-                            icon: Icons.build_circle_outlined,
-                            iconColor: NovaColors.amber,
-                            label: "Today's Repair Profit",
-                            value: loading
-                                ? '—'
-                                : 'Rs ${profit.toStringAsFixed(0)}',
-                            delta: 'Completed repairs',
-                            deltaUp: profit >= 0,
-                            isLoading: loading,
-                            fullWidth: !isDesktop,
-                          );
-                        },
-                      ),
-                      _StatCard(
-                        icon: Icons.star_rounded,
-                        iconColor: NovaColors.rose,
-                        label: 'Satisfaction',
-                        value: flowLoading
-                            ? '—'
-                            : '${satisfaction.toStringAsFixed(1)}%',
-                        delta: satisfactionDelta,
-                        deltaUp: totalOrders > 0 ? satisfaction >= 70 : null,
-                        isLoading: flowLoading,
-                        fullWidth: !isDesktop,
-                      ),
-                    ];
+            final cards = [
+              _StatCard(
+                icon: Icons.trending_up_rounded,
+                iconColor: NovaColors.violet,
+                label: "Today's Revenue",
+                value: isLoading ? '—' : 'Rs ${revenue.toStringAsFixed(0)}',
+                delta: 'Live total',
+                deltaUp: true,
+                isLoading: isLoading,
+                fullWidth: !isDesktop,
+              ),
+              _StatCard(
+                icon: Icons.receipt_long_rounded,
+                iconColor: NovaColors.teal,
+                label: 'Orders Today',
+                value: isLoading ? '—' : '$ordersToday',
+                delta: 'Updated live',
+                deltaUp: true,
+                isLoading: isLoading,
+                fullWidth: !isDesktop,
+              ),
+              StreamBuilder<double>(
+                stream: reportService.getTodayRepairProfit(),
+                builder: (context, profitSnapshot) {
+                  final profit = profitSnapshot.data ?? 0;
+                  final loading = !profitSnapshot.hasData;
+                  return _StatCard(
+                    icon: Icons.build_circle_outlined,
+                    iconColor: NovaColors.amber,
+                    label: "Today's Repair Profit",
+                    value: loading ? '—' : 'Rs ${profit.toStringAsFixed(0)}',
+                    delta: 'Completed repairs',
+                    deltaUp: profit >= 0,
+                    isLoading: loading,
+                    fullWidth: !isDesktop,
+                  );
+                },
+              ),
+              _StatCard(
+                icon: Icons.star_rounded,
+                iconColor: NovaColors.rose,
+                label: 'Satisfaction',
+                value: isLoading ? '—' : '${satisfaction.toStringAsFixed(1)}%',
+                delta: satisfactionDelta,
+                deltaUp: totalOrders > 0 ? satisfaction >= 70 : null,
+                isLoading: isLoading,
+                fullWidth: !isDesktop,
+              ),
+            ];
 
                     if (isDesktop) {
                       return Row(
@@ -301,10 +287,6 @@ class _DashboardContent extends StatelessWidget {
                         ],
                       ],
                     );
-                  },
-                );
-              },
-            );
           },
         ),
         SizedBox(height: isDesktop ? 16 : 16),

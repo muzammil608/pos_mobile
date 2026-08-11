@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/pocketbase/pocketbase_client.dart';
+import 'services/pocketbase/pocketbase_server_manager.dart';
 import 'package:pos_system/core/keyboard/pos_keyboard_system.dart';
 
 import 'providers/auth_provider.dart';
@@ -34,12 +35,28 @@ void main() async {
     return false;
   };
 
+  // Automatically start local PocketBase process on desktop platforms if not already running
+  await PocketBaseServerManager.startIfNeeded();
+
   await PocketBaseClient.init();
+
+  if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+    WidgetsBinding.instance.addObserver(_AppLifecycleObserver());
+  }
 
   runApp(const MyApp());
 
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     unawaited(PosHotkeyRegistry.init());
+  }
+}
+
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      PocketBaseServerManager.stop();
+    }
   }
 }
 

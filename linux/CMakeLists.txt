@@ -126,3 +126,21 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Bundle PocketBase executable and configuration directories into Linux app bundle
+set(POCKETBASE_BIN "${CMAKE_CURRENT_SOURCE_DIR}/../pocketbase")
+if(EXISTS "${POCKETBASE_BIN}")
+  install(PROGRAMS "${POCKETBASE_BIN}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pb_hooks")
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../pb_hooks" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pb_migrations")
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../pb_migrations" DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime)
+endif()
+

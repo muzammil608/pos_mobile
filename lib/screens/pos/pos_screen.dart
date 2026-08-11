@@ -16,6 +16,7 @@ import '../../core/utils/pakistan_phone.dart';
 import '../../models/product_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/product_provider.dart';
 import '../../services/printer/thermal_printer_service.dart';
 import '../../services/pocketbase/order_service.dart';
 import '../../services/pocketbase/inventory_service.dart';
@@ -29,34 +30,6 @@ import '../cart/product_list_bottom_sheet.dart';
 
 bool get _isDesktop =>
     !kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux);
-
-String _itemEmoji(String name) {
-  final n = name.toLowerCase();
-  if (n.contains('coffee') || n.contains('espresso') || n.contains('latte')) {
-    return '☕';
-  }
-  if (n.contains('juice') || n.contains('cold') || n.contains('drink')) {
-    return '🧃';
-  }
-  if (n.contains('burger') || n.contains('sandwich')) return '🥪';
-  if (n.contains('pizza')) return '🍕';
-  if (n.contains('cake') || n.contains('dessert') || n.contains('sweet')) {
-    return '🍰';
-  }
-  if (n.contains('salad')) return '🥗';
-  return '🍴';
-}
-
-Color _itemBgColor(String name) {
-  const colors = [
-    NovaColors.violetLight,
-    NovaColors.tealLight,
-    NovaColors.amberLight,
-    Color(0xFFFFEEF3),
-    Color(0xFFE8F4FD),
-  ];
-  return colors[name.codeUnitAt(0) % colors.length];
-}
 
 bool _cashIsInsufficient(double tendered, double total) {
   return tendered < total;
@@ -516,6 +489,7 @@ class PosScreen extends StatefulWidget {
 }
 
 class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
+  // ignore: unused_field
   ProductService? _productService;
   OrderService? _orderService;
   InventoryService? _inventoryService;
@@ -573,6 +547,12 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   int _currentCrossAxisCount = 2;
   List<Product> _lastFilteredProducts = [];
   int _focusedCartIndex = 0;
+
+  List<Product>? _cachedAllProductsRef;
+  List<String>? _cachedCategories;
+  String? _memoizedSearchQuery;
+  String? _memoizedSelectedCategory;
+  List<Product>? _memoizedFilteredProducts;
 
   double _tenderedAmount = 0.0;
   bool _isSubmitting = false;
@@ -651,6 +631,8 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final auth = Provider.of<AuthProvider>(context, listen: false);
+    final productProvider =
+        Provider.of<ProductProvider>(context, listen: false);
 
     if (auth.ownerId.isNotEmpty && auth.ownerId != _cachedOwnerId) {
       _cachedOwnerId = auth.ownerId;
@@ -658,7 +640,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       _orderService = OrderService(auth.ownerId);
       _inventoryService = InventoryService(auth.ownerId);
 
-      _productsStream = _productService?.streamProducts.asBroadcastStream();
+      _productsStream = productProvider.productsStream;
       _ordersStream = _orderService?.getOrders().asBroadcastStream();
     }
   }
@@ -1684,19 +1666,22 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
       date: date,
     );
 
-    try {
-      await ThermalPrinterService.instance.printReceiptAuto(receiptData);
-    } catch (e) {
-      final printerMissing = e.toString().contains('No printer found');
-      _noticeKey.currentState?.show(
-        printerMissing
-            ? 'Thermal printer is not connected. Receipt is still available.'
-            : 'Thermal printing failed',
-        subtitle: printerMissing ? null : e.toString(),
-        type: printerMissing ? AppNoticeType.warning : AppNoticeType.error,
-      );
-    }
-    if (!rootContext.mounted) return;
+    unawaited(
+      ThermalPrinterService.instance
+          .printReceiptAuto(receiptData)
+          .catchError((e) {
+        if (rootContext.mounted) {
+          final printerMissing = e.toString().contains('No printer found');
+          _noticeKey.currentState?.show(
+            printerMissing
+                ? 'Thermal printer is not connected. Receipt is still available.'
+                : 'Thermal printing failed',
+            subtitle: printerMissing ? null : e.toString(),
+            type: printerMissing ? AppNoticeType.warning : AppNoticeType.error,
+          );
+        }
+      }),
+    );
 
     await showDialog(
       context: rootContext,
@@ -2008,7 +1993,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                 shape: BoxShape.circle,
                 border: Border.all(color: NovaColors.borderTertiary),
               ),
-              child: const Icon(Icons.coffee_outlined,
+              child: const Icon(Icons.receipt_long_rounded,
                   size: 40, color: NovaColors.textTertiary),
             ),
             const SizedBox(height: 14),
@@ -2477,34 +2462,51 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                     }
 
                     final allProducts = snapshot.data ?? [];
-                    final categories = _getCategories(allProducts);
+                    final productsChanged =
+                        !identical(_cachedAllProductsRef, allProducts);
 
-                    final normalizedQuery = _normalizeSearch(_searchQuery);
+                    if (productsChanged || _cachedCategories == null) {
+                      _cachedAllProductsRef = allProducts;
+                      _cachedCategories = _getCategories(allProducts);
+                    }
+                    final categories = _cachedCategories!;
 
-                    final filteredProducts = allProducts.where((product) {
-                      final name = product.name.toLowerCase();
-                      final category = product.category.toLowerCase();
-                      final matchSearch = normalizedQuery.isEmpty ||
-                          name.contains(normalizedQuery) ||
-                          category.contains(normalizedQuery);
-                      final matchCategory = _selectedCategory == 'All' ||
-                          product.category == _selectedCategory;
-                      return matchSearch && matchCategory;
-                    }).toList();
+                    if (productsChanged ||
+                        _memoizedSearchQuery != _searchQuery ||
+                        _memoizedSelectedCategory != _selectedCategory ||
+                        _memoizedFilteredProducts == null) {
+                      _memoizedSearchQuery = _searchQuery;
+                      _memoizedSelectedCategory = _selectedCategory;
 
-                    if (normalizedQuery.isNotEmpty) {
-                      filteredProducts.sort((a, b) {
-                        final scoreCompare = _matchScore(a, normalizedQuery)
-                            .compareTo(_matchScore(b, normalizedQuery));
-                        if (scoreCompare != 0) {
-                          return scoreCompare;
-                        }
-                        return a.name.toLowerCase().compareTo(
-                              b.name.toLowerCase(),
-                            );
-                      });
+                      final normalizedQuery = _normalizeSearch(_searchQuery);
+
+                      final filtered = allProducts.where((product) {
+                        final name = product.name.toLowerCase();
+                        final category = product.category.toLowerCase();
+                        final matchSearch = normalizedQuery.isEmpty ||
+                            name.contains(normalizedQuery) ||
+                            category.contains(normalizedQuery);
+                        final matchCategory = _selectedCategory == 'All' ||
+                            product.category == _selectedCategory;
+                        return matchSearch && matchCategory;
+                      }).toList();
+
+                      if (normalizedQuery.isNotEmpty) {
+                        filtered.sort((a, b) {
+                          final scoreCompare = _matchScore(a, normalizedQuery)
+                              .compareTo(_matchScore(b, normalizedQuery));
+                          if (scoreCompare != 0) {
+                            return scoreCompare;
+                          }
+                          return a.name.toLowerCase().compareTo(
+                                b.name.toLowerCase(),
+                              );
+                        });
+                      }
+                      _memoizedFilteredProducts = filtered;
                     }
 
+                    final filteredProducts = _memoizedFilteredProducts!;
                     _lastFilteredProducts = filteredProducts;
                     final allowProductFocus =
                         MediaQuery.sizeOf(context).width >= 600;
@@ -2567,7 +2569,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                           ),
                                         ),
                                         child: const Icon(
-                                          Icons.coffee_maker_outlined,
+                                          Icons.inventory_2_outlined,
                                           size: 40,
                                           color: NovaColors.textTertiary,
                                         ),
@@ -3355,31 +3357,6 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                                     ),
                                                     child: Row(
                                                       children: [
-                                                        Container(
-                                                          width: 42,
-                                                          height: 42,
-                                                          decoration:
-                                                              BoxDecoration(
-                                                            color: _itemBgColor(
-                                                                name),
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                              10,
-                                                            ),
-                                                          ),
-                                                          child: Center(
-                                                            child: Text(
-                                                              _itemEmoji(name),
-                                                              style:
-                                                                  const TextStyle(
-                                                                fontSize: 18,
-                                                              ),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        const SizedBox(
-                                                            width: 10),
                                                         Expanded(
                                                           child: Column(
                                                             crossAxisAlignment:

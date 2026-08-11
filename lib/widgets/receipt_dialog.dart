@@ -126,12 +126,7 @@ class ReceiptDialog extends StatelessWidget {
           date: date,
         ),
       );
-      if (!context.mounted) return;
-      AppNotice.show(
-        context,
-        'Receipt sent to thermal printer.',
-        type: AppNoticeType.success,
-      );
+      // Printer connected and receipt sent successfully: no toast shown.
     } catch (e) {
       if (!context.mounted) return;
       final printerMissing = e.toString().contains('No printer found');

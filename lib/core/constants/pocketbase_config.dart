@@ -7,4 +7,7 @@ class PocketBaseConfig {
   static String get baseUrl => _configuredUrl.endsWith('/')
       ? _configuredUrl.substring(0, _configuredUrl.length - 1)
       : _configuredUrl;
+
+  /// Unique build signature to ensure fresh installations land on the Login Screen.
+  static const String buildSignature = '1.0.0+1';
 }

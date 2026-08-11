@@ -1,7 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'dart:convert';
 
 class CartProvider with ChangeNotifier {
   static const String _cartPrefsKey = 'pos_cart_items_v1';
@@ -153,7 +154,7 @@ class CartProvider with ChangeNotifier {
     }
 
     _safeNotify();
-    await _persistCart();
+    unawaited(_persistCart());
   }
 
   Future<void> removeItem(String cartDocId) async {
@@ -162,7 +163,7 @@ class CartProvider with ChangeNotifier {
     _items.removeWhere((item) => item['cartDocId'] == cartDocId);
 
     _safeNotify();
-    await _persistCart();
+    unawaited(_persistCart());
   }
 
   Future<void> updateItemQuantity(String cartDocId, int qty) async {
@@ -192,7 +193,7 @@ class CartProvider with ChangeNotifier {
     };
 
     _safeNotify();
-    await _persistCart();
+    unawaited(_persistCart());
   }
 
   Future<void> updateItemPrice(
@@ -240,7 +241,7 @@ class CartProvider with ChangeNotifier {
     _items[index] = updatedItem;
 
     _safeNotify();
-    await _persistCart();
+    unawaited(_persistCart());
   }
 
   Future<void> clear() async {
@@ -249,7 +250,7 @@ class CartProvider with ChangeNotifier {
     _items.clear();
 
     _safeNotify();
-    await _persistCart();
+    unawaited(_persistCart());
   }
 
   static double _readDouble(dynamic value) {

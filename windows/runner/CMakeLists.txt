@@ -38,3 +38,42 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Copy PocketBase binary & configuration to target binary directory post-build
+set(POCKETBASE_EXE "${CMAKE_SOURCE_DIR}/../pocketbase.exe")
+if(EXISTS "${POCKETBASE_EXE}")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${POCKETBASE_EXE}"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/pocketbase.exe"
+  )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/../pb_hooks")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/../pb_hooks"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/pb_hooks"
+  )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/../pb_migrations")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/../pb_migrations"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/pb_migrations"
+  )
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/../pb_data")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/../pb_data"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/pb_data"
+  )
+endif()
+
