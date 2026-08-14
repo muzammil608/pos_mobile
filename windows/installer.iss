@@ -2,7 +2,7 @@
 ; Inno Setup Compiler Script
 
 #define MyAppName "ShopFlow POS"
-#define MyAppVersion "1.1.5"
+#define MyAppVersion "1.1.6"
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
 #define MyAppIcon "runner\resources\app_icon.ico"

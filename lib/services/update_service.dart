@@ -540,44 +540,64 @@ class UpdateService {
           vbsScriptFile.parent.createSync(recursive: true);
         }
 
-        final scriptContent = '''Option Explicit
-
-Dim fso, shell, logPath, tempDir, installerPath, appExePath, appDir
-Dim exitCode, targetExe, targetDir
-
+        final scriptContent = '''Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
-Set shell = CreateObject("WScript.Shell")
 
-tempDir = shell.ExpandEnvironmentStrings("%TEMP%")
-logPath = tempDir & "\\ShopFlow_Update_debug.log"
+tempDir = WshShell.ExpandEnvironmentStrings("%TEMP%")
+debugLog = tempDir & "\\ShopFlow_Update_debug.log"
 
-Sub LogMsg(msg)
-    On Error Resume Next
-    Dim stream
-    Set stream = fso.OpenTextFile(logPath, 8, True)
-    stream.WriteLine "[" & Now & "] [VBS-UPDATER] " & msg
-    stream.Close
-    On Error GoTo 0
-End Sub
+Set logFileStream = fso.OpenTextFile(debugLog, 8, True)
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Started updater script"
 
-LogMsg "Started updater script"
-LogMsg "Sleeping 2s for app exit..."
+' 1. Wait 2 seconds for calling app to exit
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Sleeping 2s for app exit..."
 WScript.Sleep 2000
 
 installerPath = "$installerPath"
+appExe = "$appExePath"
+appDir = "$appDir"
+innoLog = tempDir & "\\ShopFlow_Update.log"
 
 ' Terminate lingering processes
 On Error Resume Next
-shell.Run "taskkill /F /IM pos_system.exe /IM pocketbase.exe", 0, True
+WshShell.Run "taskkill /F /IM pos_system.exe /IM pocketbase.exe", 0, True
 On Error GoTo 0
 
-LogMsg "Running installer: " & installerPath
-exitCode = shell.Run(Chr(34) & installerPath & Chr(34) & " /SILENT /SP- /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS", 0, True)
-LogMsg "Installer finished with exit code: " & exitCode
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Requesting elevated install: " & installerPath
 
-' Determine Target Executable
-targetExe = ""
-targetDir = ""
+installerArgs = "/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /RESTARTAPPLICATIONS=0 /LOG=""" & innoLog & """"
+
+Set objShellApp = CreateObject("Shell.Application")
+objShellApp.ShellExecute installerPath, installerArgs, "", "runas", 0
+
+' ShellExecute with runas is asynchronous, so poll WMI until the installer process finishes
+installerFileName = fso.GetFileName(installerPath)
+Set objWMI = GetObject("winmgmts:\\\\.\\root\\cimv2")
+
+isRunning = True
+waitedSeconds = 0
+Do While isRunning
+  WScript.Sleep 1000
+  waitedSeconds = waitedSeconds + 1
+  isRunning = False
+
+  Set colProcesses = objWMI.ExecQuery("SELECT * FROM Win32_Process WHERE Name = '" & installerFileName & "'")
+  For Each objProcess In colProcesses
+    isRunning = True
+  Next
+
+  ' Safety timeout: 5 minutes
+  If waitedSeconds > 300 Then
+    logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] WARNING: install wait timed out after 5 minutes."
+    isRunning = False
+  End If
+Loop
+
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Installer process finished (waited " & waitedSeconds & "s)."
+
+' Locate the installed executable
+targetExe = appExe
+targetDir = appDir
 
 If fso.FileExists("C:\\Program Files\\ShopFlow POS\\pos_system.exe") Then
     targetExe = "C:\\Program Files\\ShopFlow POS\\pos_system.exe"
@@ -585,24 +605,20 @@ If fso.FileExists("C:\\Program Files\\ShopFlow POS\\pos_system.exe") Then
 ElseIf fso.FileExists("C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe") Then
     targetExe = "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe"
     targetDir = "C:\\Program Files (x86)\\ShopFlow POS"
-ElseIf fso.FileExists(shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")) Then
-    targetExe = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")
-    targetDir = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS")
-ElseIf fso.FileExists("$appExePath") Then
-    targetExe = "$appExePath"
-    targetDir = "$appDir"
+ElseIf fso.FileExists(WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")) Then
+    targetExe = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")
+    targetDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS")
 End If
 
-If targetExe <> "" Then
-    LogMsg "Relaunching app: " & targetExe & " in " & targetDir
-    shell.CurrentDirectory = targetDir
-    shell.Run Chr(34) & targetExe & Chr(34), 1, False
-    LogMsg "App relaunched successfully. Done."
-Else
-    LogMsg "ERROR: Could not locate installed pos_system.exe!"
-End If
+' 3. Relaunch the upgraded application in standard desktop session
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Relaunching app: " & targetExe & " in " & targetDir
+WshShell.CurrentDirectory = targetDir
+WshShell.Run """" & targetExe & """", 1, False
 
-WScript.Sleep 2000
+logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] App relaunched successfully. Done."
+logFileStream.Close
+
+' 4. Clean up script
 On Error Resume Next
 fso.DeleteFile WScript.ScriptFullName, True
 On Error GoTo 0
