@@ -516,41 +516,106 @@ class UpdateService {
       if (!kIsWeb && Platform.isWindows) {
         // 1. Stop local PocketBase server process if active to avoid file lock
         try {
-          PocketBaseServerManager.stop();
+          await PocketBaseServerManager.stop();
         } catch (_) {}
 
-        final installerPath = installerFile.path;
-        final appExePath = Platform.resolvedExecutable;
+        final installerPath = p.normalize(installerFile.absolute.path);
+        final appExePath = p.normalize(Platform.resolvedExecutable);
+        final appDir = p.normalize(File(appExePath).parent.path);
+        final currentPid = pid;
 
-        // 2. Generate a dedicated background relauncher script in temp directory
+        // 2. Generate a dedicated background PowerShell relauncher script in temp directory
         final tempDir = Directory.systemTemp;
-        final updateScript =
-            File(p.join(tempDir.path, 'shopflow_update_relaunch.cmd'));
+        final psScriptFile = File(p.join(
+          tempDir.path,
+          'ShopFlow_Update',
+          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.ps1',
+        ));
 
-        final scriptContent = '''
-@echo off
-timeout /t 1 /nobreak >nul
-taskkill /F /IM pos_system.exe /IM pocketbase.exe >nul 2>&1
-start /wait "" "$installerPath" /SILENT /SP- /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS
-timeout /t 1 /nobreak >nul
-if exist "$appExePath" (
-    start "" "$appExePath"
-) else (
-    start "" "%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe"
-)
-del "%~f0" >nul 2>&1
-exit
+        if (!psScriptFile.parent.existsSync()) {
+          psScriptFile.parent.createSync(recursive: true);
+        }
+
+        final scriptContent = '''# ShopFlow POS Automated Silent Background Updater & Self-Relauncher
+\$ErrorActionPreference = 'SilentlyContinue'
+
+\$installerPath = '$installerPath'
+\$appExePath    = '$appExePath'
+\$appDir        = '$appDir'
+\$appPid        = $currentPid
+
+# 1. Allow the calling application process time to shut down cleanly
+Start-Sleep -Seconds 1
+if (\$appPid -gt 0) {
+    try {
+        \$parentProc = Get-Process -Id \$appPid -ErrorAction SilentlyContinue
+        if (\$parentProc) {
+            \$parentProc.WaitForExit(3000)
+        }
+    } catch {}
+}
+
+# Force terminate any remaining pos_system or pocketbase processes to prevent locked file conflicts
+Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
+# 2. Run Inno Setup installer with Administrator Elevation (RunAs) and WAIT for complete installation
+\$installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /SP- /NORESTART'
+try {
+    Start-Process -FilePath \$installerPath -ArgumentList \$installerArgs -Verb RunAs -Wait
+} catch {
+    # Fallback if RunAs is denied or not supported
+    Start-Process -FilePath \$installerPath -ArgumentList \$installerArgs -Wait
+}
+
+# 3. Actively monitor until no installer process with that name is running
+\$installerBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installerPath)
+\$maxWaitSeconds = 90
+while (\$maxWaitSeconds -gt 0 -and (Get-Process -Name \$installerBaseName -ErrorAction SilentlyContinue)) {
+    Start-Sleep -Seconds 1
+    \$maxWaitSeconds--
+}
+
+# Brief pause to ensure all files are closed and unlocked on disk
+Start-Sleep -Seconds 1
+
+# 4. Relaunch the upgraded application in its installed working directory under standard user session
+if (Test-Path \$appExePath) {
+    Start-Process -FilePath \$appExePath -WorkingDirectory \$appDir
+} else {
+    \$fallbackPath = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe"
+    if (Test-Path \$fallbackPath) {
+        Start-Process -FilePath \$fallbackPath -WorkingDirectory (Split-Path \$fallbackPath)
+    }
+}
+
+# 5. Clean up temporary files
+Start-Sleep -Seconds 2
+try {
+    Remove-Item -LiteralPath \$installerPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
+} catch {}
 ''';
-        await updateScript.writeAsString(scriptContent);
 
-        // 3. Launch the update script detached
+        await psScriptFile.writeAsString(scriptContent);
+
+        // 3. Launch PowerShell detached & hidden to execute the update script
         await Process.start(
-          'cmd.exe',
-          ['/c', updateScript.path],
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-WindowStyle',
+            'Hidden',
+            '-File',
+            psScriptFile.path,
+          ],
           mode: ProcessStartMode.detached,
         );
 
-        // 4. Terminate the running app process
+        // 4. Terminate current Flutter application process cleanly
         exit(0);
       } else {
         // For other platforms, launch file or URL
@@ -581,6 +646,12 @@ exit
   static File getTempInstallerFile({String? assetName, String? version}) {
     final fileName = assetName ?? 'ShopFlow_POS_Setup_v${version ?? "new"}.exe';
     final tempDir = Directory.systemTemp;
-    return File(p.join(tempDir.path, fileName));
+    final updateDir = Directory(p.join(tempDir.path, 'ShopFlow_Update'));
+    if (!updateDir.existsSync()) {
+      try {
+        updateDir.createSync(recursive: true);
+      } catch (_) {}
+    }
+    return File(p.join(updateDir.path, fileName));
   }
 }
