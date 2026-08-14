@@ -506,7 +506,7 @@ class UpdateService {
     }
   }
 
-  /// Launches the downloaded installer executable, updates silently in the background, and relaunches the app automatically.
+  /// Launches the downloaded installer executable, updates silently in the background, logs progress, and relaunches the app automatically.
   static Future<bool> relaunchAndInstall(File installerFile) async {
     if (!await installerFile.exists()) {
       return false;
@@ -519,99 +519,101 @@ class UpdateService {
           await PocketBaseServerManager.stop();
         } catch (_) {}
 
-        final installerPath = p.normalize(installerFile.absolute.path);
-        final appExePath = p.normalize(Platform.resolvedExecutable);
-        final appDir = p.normalize(File(appExePath).parent.path);
-        final currentPid = pid;
+        final installerPath =
+            p.normalize(installerFile.absolute.path).replaceAll(r'\', r'\\');
+        final appExePath = p
+            .normalize(Platform.resolvedExecutable)
+            .replaceAll(r'\', r'\\');
+        final appDir = p
+            .normalize(File(Platform.resolvedExecutable).parent.path)
+            .replaceAll(r'\', r'\\');
 
-        // 2. Generate a dedicated background PowerShell relauncher script in temp directory
+        // 2. Generate a dedicated background VBScript relauncher script in temp directory
         final tempDir = Directory.systemTemp;
-        final psScriptFile = File(p.join(
+        final vbsScriptFile = File(p.join(
           tempDir.path,
           'ShopFlow_Update',
-          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.ps1',
+          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.vbs',
         ));
 
-        if (!psScriptFile.parent.existsSync()) {
-          psScriptFile.parent.createSync(recursive: true);
+        if (!vbsScriptFile.parent.existsSync()) {
+          vbsScriptFile.parent.createSync(recursive: true);
         }
 
-        final scriptContent = '''# ShopFlow POS Automated Silent Background Updater & Self-Relauncher
-\$ErrorActionPreference = 'SilentlyContinue'
+        final scriptContent = '''Option Explicit
 
-\$installerPath = '$installerPath'
-\$appExePath    = '$appExePath'
-\$appDir        = '$appDir'
-\$appPid        = $currentPid
+Dim fso, shell, logPath, tempDir, installerPath, appExePath, appDir
+Dim exitCode, targetExe, targetDir
 
-# 1. Allow the calling application process time to shut down cleanly
-Start-Sleep -Seconds 1
-if (\$appPid -gt 0) {
-    try {
-        \$parentProc = Get-Process -Id \$appPid -ErrorAction SilentlyContinue
-        if (\$parentProc) {
-            \$parentProc.WaitForExit(3000)
-        }
-    } catch {}
-}
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set shell = CreateObject("WScript.Shell")
 
-# Force terminate any remaining pos_system or pocketbase processes to prevent locked file conflicts
-Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
+tempDir = shell.ExpandEnvironmentStrings("%TEMP%")
+logPath = tempDir & "\\ShopFlow_Update_debug.log"
 
-# 2. Run Inno Setup installer with Administrator Elevation (RunAs) and WAIT for complete installation
-\$installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /SP- /NORESTART'
-try {
-    Start-Process -FilePath \$installerPath -ArgumentList \$installerArgs -Verb RunAs -Wait
-} catch {
-    # Fallback if RunAs is denied or not supported
-    Start-Process -FilePath \$installerPath -ArgumentList \$installerArgs -Wait
-}
+Sub LogMsg(msg)
+    On Error Resume Next
+    Dim stream
+    Set stream = fso.OpenTextFile(logPath, 8, True)
+    stream.WriteLine "[" & Now & "] [VBS-UPDATER] " & msg
+    stream.Close
+    On Error GoTo 0
+End Sub
 
-# 3. Actively monitor until no installer process with that name is running
-\$installerBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installerPath)
-\$maxWaitSeconds = 90
-while (\$maxWaitSeconds -gt 0 -and (Get-Process -Name \$installerBaseName -ErrorAction SilentlyContinue)) {
-    Start-Sleep -Seconds 1
-    \$maxWaitSeconds--
-}
+LogMsg "Started updater script"
+LogMsg "Sleeping 2s for app exit..."
+WScript.Sleep 2000
 
-# Brief pause to ensure all files are closed and unlocked on disk
-Start-Sleep -Seconds 1
+installerPath = "$installerPath"
 
-# 4. Relaunch the upgraded application in its installed working directory under standard user session
-if (Test-Path \$appExePath) {
-    Start-Process -FilePath \$appExePath -WorkingDirectory \$appDir
-} else {
-    \$fallbackPath = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe"
-    if (Test-Path \$fallbackPath) {
-        Start-Process -FilePath \$fallbackPath -WorkingDirectory (Split-Path \$fallbackPath)
-    }
-}
+' Terminate lingering processes
+On Error Resume Next
+shell.Run "taskkill /F /IM pos_system.exe /IM pocketbase.exe", 0, True
+On Error GoTo 0
 
-# 5. Clean up temporary files
-Start-Sleep -Seconds 2
-try {
-    Remove-Item -LiteralPath \$installerPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath \$PSCommandPath -Force -ErrorAction SilentlyContinue
-} catch {}
+LogMsg "Running installer: " & installerPath
+exitCode = shell.Run(Chr(34) & installerPath & Chr(34) & " /SILENT /SP- /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS", 0, True)
+LogMsg "Installer finished with exit code: " & exitCode
+
+' Determine Target Executable
+targetExe = ""
+targetDir = ""
+
+If fso.FileExists("C:\\Program Files\\ShopFlow POS\\pos_system.exe") Then
+    targetExe = "C:\\Program Files\\ShopFlow POS\\pos_system.exe"
+    targetDir = "C:\\Program Files\\ShopFlow POS"
+ElseIf fso.FileExists("C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe") Then
+    targetExe = "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe"
+    targetDir = "C:\\Program Files (x86)\\ShopFlow POS"
+ElseIf fso.FileExists(shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")) Then
+    targetExe = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")
+    targetDir = shell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS")
+ElseIf fso.FileExists("$appExePath") Then
+    targetExe = "$appExePath"
+    targetDir = "$appDir"
+End If
+
+If targetExe <> "" Then
+    LogMsg "Relaunching app: " & targetExe & " in " & targetDir
+    shell.CurrentDirectory = targetDir
+    shell.Run Chr(34) & targetExe & Chr(34), 1, False
+    LogMsg "App relaunched successfully. Done."
+Else
+    LogMsg "ERROR: Could not locate installed pos_system.exe!"
+End If
+
+WScript.Sleep 2000
+On Error Resume Next
+fso.DeleteFile WScript.ScriptFullName, True
+On Error GoTo 0
 ''';
 
-        await psScriptFile.writeAsString(scriptContent);
+        await vbsScriptFile.writeAsString(scriptContent);
 
-        // 3. Launch PowerShell detached & hidden to execute the update script
+        // 3. Launch WScript detached to execute the update script silently
         await Process.start(
-          'powershell.exe',
-          [
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-WindowStyle',
-            'Hidden',
-            '-File',
-            psScriptFile.path,
-          ],
+          'wscript.exe',
+          [vbsScriptFile.path],
           mode: ProcessStartMode.detached,
         );
 
