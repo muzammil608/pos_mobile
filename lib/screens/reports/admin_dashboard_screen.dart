@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/pocketbase/report_service.dart';
 import '../../../widgets/status_donut_chart.dart';
-import '../../core/theme/cafe_colors.dart';
 import '../../core/theme/nova_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/app_navigation.dart';
@@ -60,103 +59,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           drawer: null,
           bottomNavigationBar:
               !isDesktop ? const AppMobileBottomNavBar(currentIndex: 1) : null,
-          appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(64),
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: CafeColors.headerGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x33534AB7),
-                    blurRadius: 12,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                child: AppBar(
-                  backgroundColor: Colors.transparent,
-                  elevation: 0,
-                  iconTheme: const IconThemeData(color: Colors.white),
-                  title: const Row(
-                    children: [
-                      Icon(Icons.dashboard_customize_rounded,
-                          color: Colors.white70, size: 22),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Admin Dashboard',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 18,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    if (!isDesktop)
-                      IconButton(
-                        tooltip: 'Logout',
-                        icon: const Icon(Icons.logout_rounded,
-                            color: Colors.white70),
-                        onPressed: () async {
-                          final isMobile =
-                              MediaQuery.sizeOf(context).width < 600;
-                          bool confirm = true;
-                          if (!isMobile) {
-                            confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (dialogCtx) => AlertDialog(
-                                    title: const Text('Logout'),
-                                    content: const Text(
-                                        'Are you sure you want to logout?'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(dialogCtx, false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(dialogCtx, true),
-                                        style: TextButton.styleFrom(
-                                            foregroundColor: Colors.red),
-                                        child: const Text('Logout'),
-                                      ),
-                                    ],
-                                  ),
-                                ) ??
-                                false;
-                          }
-                          if (confirm && context.mounted) {
-                            await Provider.of<AuthProvider>(context,
-                                    listen: false)
-                                .logout();
-                            if (context.mounted) {
-                              Navigator.of(context).pushNamedAndRemoveUntil(
-                                '/login',
-                                (route) => false,
-                              );
-                            }
-                          }
-                        },
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: AppDrawerAvatarButton(
-                        photoUrl: photoUrl,
-                        userName: userName,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          appBar: AppNavigationAppBar(
+            title: 'Admin Dashboard',
+            icon: Icons.dashboard_customize_rounded,
+            photoUrl: photoUrl,
+            userName: userName,
           ),
           body: AppNavigationShell(
             auth: auth,

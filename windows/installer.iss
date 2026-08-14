@@ -2,11 +2,11 @@
 ; Inno Setup Compiler Script
 
 #define MyAppName "ShopFlow POS"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
 #define MyAppIcon "runner\resources\app_icon.ico"
-#define BuildReleaseDir "..\build\windows\x64\runner\Release"
+#define BuildReleaseDir "..\build\windows\x64\runner"
 #define OutputDir "..\build\windows\installer"
 
 [Setup]
@@ -43,7 +43,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#BuildReleaseDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 ; All Bundle Files (DLLs, data folder, pocketbase.exe, hooks, migrations)
-Source: "{#BuildReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb"
+Source: "{#BuildReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.ilk,CMakeFiles,cmake_install.cmake,pb_data"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

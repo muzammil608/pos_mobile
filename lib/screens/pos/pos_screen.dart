@@ -26,6 +26,7 @@ import '../../widgets/app_navigation.dart';
 import '../../widgets/bargain_price_dialog.dart';
 import '../../widgets/receipt_dialog.dart';
 import '../../widgets/responsive_layout.dart';
+import '../../widgets/update_button.dart';
 import '../cart/product_list_bottom_sheet.dart';
 
 bool get _isDesktop =>
@@ -2255,6 +2256,7 @@ class _PosScreenState extends State<PosScreen> with TickerProviderStateMixin {
                                             );
                                           },
                                         ),
+                                        const AppUpdateButton(iconSize: 20),
                                         IconButton(
                                           tooltip: 'Logout',
                                           icon: const Icon(Icons.logout_rounded,
