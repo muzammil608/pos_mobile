@@ -506,7 +506,7 @@ class UpdateService {
     }
   }
 
-  /// Launches the downloaded installer executable and terminates the running app safely.
+  /// Launches the downloaded installer executable, updates silently in the background, and relaunches the app automatically.
   static Future<bool> relaunchAndInstall(File installerFile) async {
     if (!await installerFile.exists()) {
       return false;
@@ -514,17 +514,43 @@ class UpdateService {
 
     try {
       if (!kIsWeb && Platform.isWindows) {
-        // Stop local PocketBase server process if active to avoid file lock
-        PocketBaseServerManager.stop();
+        // 1. Stop local PocketBase server process if active to avoid file lock
+        try {
+          PocketBaseServerManager.stop();
+        } catch (_) {}
 
-        // Launch installer detached
+        final installerPath = installerFile.path;
+        final appExePath = Platform.resolvedExecutable;
+
+        // 2. Generate a dedicated background relauncher script in temp directory
+        final tempDir = Directory.systemTemp;
+        final updateScript =
+            File(p.join(tempDir.path, 'shopflow_update_relaunch.cmd'));
+
+        final scriptContent = '''
+@echo off
+timeout /t 1 /nobreak >nul
+taskkill /F /IM pos_system.exe /IM pocketbase.exe >nul 2>&1
+start /wait "" "$installerPath" /SILENT /SP- /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS
+timeout /t 1 /nobreak >nul
+if exist "$appExePath" (
+    start "" "$appExePath"
+) else (
+    start "" "%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe"
+)
+del "%~f0" >nul 2>&1
+exit
+''';
+        await updateScript.writeAsString(scriptContent);
+
+        // 3. Launch the update script detached
         await Process.start(
-          installerFile.path,
-          [],
+          'cmd.exe',
+          ['/c', updateScript.path],
           mode: ProcessStartMode.detached,
         );
 
-        // Terminate app cleanly
+        // 4. Terminate the running app process
         exit(0);
       } else {
         // For other platforms, launch file or URL
