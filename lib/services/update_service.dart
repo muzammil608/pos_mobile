@@ -26,6 +26,7 @@ class AppRelease {
   final String? assetDownloadUrl;
   final String? assetName;
   final int? assetSize;
+  final String? assetDigest;
   final bool isPrerelease;
 
   const AppRelease({
@@ -38,6 +39,7 @@ class AppRelease {
     this.assetDownloadUrl,
     this.assetName,
     this.assetSize,
+    this.assetDigest,
     this.isPrerelease = false,
   });
 
@@ -80,37 +82,26 @@ class AppRelease {
     String? downloadUrl;
     String? assetName;
     int? assetSize;
+    String? assetDigest;
 
     final assets = json['assets'] as List<dynamic>?;
     if (assets != null && assets.isNotEmpty) {
       dynamic match;
+      final expectedInstaller = RegExp(
+        r'(^|[^0-9])v?' + RegExp.escape(rawVersion) + r'([^0-9]|$)',
+        caseSensitive: false,
+      );
 
       // 1. Look for .exe on Windows
       for (final a in assets) {
         if (a is Map &&
             a['name'] != null &&
-            a['name'].toString().toLowerCase().endsWith('.exe')) {
+            a['name'].toString().toLowerCase().endsWith('.exe') &&
+            expectedInstaller.hasMatch(a['name'].toString())) {
           match = a;
           break;
         }
       }
-
-      // 2. Look for .zip or other installer if .exe not found
-      if (match == null) {
-        for (final a in assets) {
-          if (a is Map &&
-              a['name'] != null &&
-              (a['name'].toString().toLowerCase().endsWith('.zip') ||
-                  a['name'].toString().toLowerCase().endsWith('.apk') ||
-                  a['name'].toString().toLowerCase().endsWith('.msix'))) {
-            match = a;
-            break;
-          }
-        }
-      }
-
-      // 3. Fallback to first available asset
-      match ??= assets.first;
 
       if (match != null && match is Map) {
         downloadUrl = match['browser_download_url']?.toString();
@@ -118,6 +109,10 @@ class AppRelease {
         assetSize = match['size'] is int
             ? match['size'] as int
             : int.tryParse(match['size']?.toString() ?? '');
+        final digest = match['digest']?.toString();
+        assetDigest = digest?.startsWith('sha256:') == true
+            ? digest!.substring('sha256:'.length)
+            : digest;
       }
     }
 
@@ -138,6 +133,7 @@ class AppRelease {
       assetDownloadUrl: downloadUrl,
       assetName: assetName,
       assetSize: assetSize,
+      assetDigest: assetDigest,
       isPrerelease: json['prerelease'] == true,
     );
   }
@@ -397,10 +393,11 @@ class UpdateService {
     required File targetFile,
     UpdateDownloadCancelToken? cancelToken,
   }) async* {
-    final downloadUrl = release.assetDownloadUrl ?? release.htmlUrl;
+    final downloadUrl = release.assetDownloadUrl;
 
-    if (downloadUrl.isEmpty) {
-      throw Exception('No valid download URL found for this release.');
+    if (downloadUrl == null || downloadUrl.isEmpty) {
+      throw Exception(
+          'No version-matching Windows installer was found for release ${release.version}.');
     }
 
     // Ensure parent directory exists
@@ -408,9 +405,15 @@ class UpdateService {
       await targetFile.parent.create(recursive: true);
     }
 
+    final partialFile = File('${targetFile.path}.partial');
     if (await targetFile.exists()) {
       try {
         await targetFile.delete();
+      } catch (_) {}
+    }
+    if (await partialFile.exists()) {
+      try {
+        await partialFile.delete();
       } catch (_) {}
     }
 
@@ -438,7 +441,7 @@ class UpdateService {
     final totalBytes = response.contentLength ?? release.assetSize ?? 0;
     int receivedBytes = 0;
 
-    final sink = targetFile.openWrite();
+    final sink = partialFile.openWrite();
 
     try {
       yield UpdateDownloadProgress(
@@ -489,10 +492,12 @@ class UpdateService {
       await sink.close();
       client.close();
 
-      if (totalBytes > 0 && receivedBytes < totalBytes) {
+      if (totalBytes > 0 && receivedBytes != totalBytes) {
         throw Exception(
             'Incomplete download ($receivedBytes of $totalBytes bytes received).');
       }
+
+      await partialFile.rename(targetFile.path);
 
       yield UpdateDownloadProgress(
         receivedBytes: receivedBytes,
@@ -506,17 +511,19 @@ class UpdateService {
         await sink.close();
       } catch (_) {}
       client.close();
-      if (await targetFile.exists()) {
+      if (await partialFile.exists()) {
         try {
-          await targetFile.delete();
+          await partialFile.delete();
         } catch (_) {}
       }
       rethrow;
     }
   }
 
-  /// Launches the downloaded installer executable, updates silently in the background, logs progress, and relaunches the app automatically.
-  static Future<bool> relaunchAndInstall(File installerFile) async {
+  /// Starts a detached updater. The updater owns the rest of the transaction
+  /// because this process must exit before an installed executable can change.
+  static Future<bool> relaunchAndInstall(File installerFile,
+      {String? expectedVersion, String? expectedDigest}) async {
     if (!await installerFile.exists()) {
       return false;
     }
@@ -532,6 +539,9 @@ class UpdateService {
         final appExePath = p.normalize(Platform.resolvedExecutable);
         final appDir =
             p.normalize(File(Platform.resolvedExecutable).parent.path);
+        final version =
+            expectedVersion ?? _versionFromInstallerName(installerFile);
+        final failedMarker = '${installerFile.path}.failed';
 
         // 2. Generate a dedicated background PowerShell relauncher script in temp directory
         final tempDir = Directory.systemTemp;
@@ -546,9 +556,17 @@ class UpdateService {
         }
 
         final scriptContent = '''# ShopFlow POS Automated Background Updater
-\$ErrorActionPreference = 'Continue'
+\$ErrorActionPreference = 'Stop'
+\$installer = ${_psQuote(installerPath)}
+\$targetExe = ${_psQuote(appExePath)}
+\$targetDir = ${_psQuote(appDir)}
+\$expectedVersion = ${_psQuote(version)}
+\$expectedDigest = ${_psQuote(expectedDigest ?? '')}
+\$failedMarker = ${_psQuote(failedMarker)}
 \$tempDir = [System.IO.Path]::GetTempPath()
-\$debugLog = Join-Path \$tempDir "ShopFlow_Update_debug.log"
+\$updateDir = Join-Path \$tempDir "ShopFlow_Update"
+\$debugLog = Join-Path \$updateDir "ShopFlow_Update_debug.log"
+\$innoLog = Join-Path \$updateDir "ShopFlow_Update.log"
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -557,17 +575,31 @@ function Write-UpdateLog(\$msg) {
 
 Write-UpdateLog "=========================================="
 Write-UpdateLog "Starting PowerShell background updater script"
-Write-UpdateLog "Caller EXE: $appExePath"
-Write-UpdateLog "Installer: $installerPath"
+Write-UpdateLog "Target EXE: \$targetExe"
+Write-UpdateLog "Installer: \$installer"
+Write-UpdateLog "Expected version: \$expectedVersion"
+
+function Fail-Update(\$message) {
+    Write-UpdateLog "ERROR: \$message"
+    \$message | Out-File -FilePath \$failedMarker -Encoding utf8 -Force
+    exit 1
+}
+
+if (Test-Path \$failedMarker) { Write-UpdateLog "Refusing repeated attempt for failed installer."; exit 2 }
+if (-not (Test-Path \$installer -PathType Leaf)) { Fail-Update "Installer does not exist." }
+\$installerInfo = Get-Item \$installer
+if (\$installerInfo.Length -lt 1MB) { Fail-Update "Installer is unexpectedly small (\$([int64]\$installerInfo.Length) bytes)." }
+if (\$expectedDigest) {
+    \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) { Fail-Update "Installer SHA-256 mismatch. Expected \$expectedDigest, got \$actualDigest." }
+}
 
 # 1. Wait for current Flutter application and PocketBase to completely terminate
 Write-UpdateLog "Waiting for app process to exit..."
 Start-Sleep -Seconds 2
-Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-
-\$installer = "$installerPath"
-\$innoLog = Join-Path \$tempDir "ShopFlow_Update.log"
+Get-Process -Name "pos_system" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
 
 # 2. Execute elevated installer and wait for full completion
 Write-UpdateLog "Launching elevated Inno Setup installer..."
@@ -577,36 +609,39 @@ try {
     \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru -Wait
     \$exitCode = \$proc.ExitCode
     Write-UpdateLog "Installer process exited with code: \$exitCode"
+    if (\$exitCode -ne 0) { Fail-Update "Installer failed with exit code \$exitCode." }
 } catch {
-    Write-UpdateLog "ERROR running installer elevated: \$_"
-    \$exitCode = -1
+    Fail-Update "Could not run installer elevated: \$_"
 }
 
 # 3. Wait for any Inno Setup temporary unpacker child processes (is-*.tmp) to finish
 Write-UpdateLog "Checking for child Inno Setup worker processes..."
+function Get-DescendantProcessIds(\$parentId) {
+    \$children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = \$parentId" -ErrorAction SilentlyContinue)
+    foreach (\$child in \$children) {
+        Write-Output ([int]\$child.ProcessId)
+        Get-DescendantProcessIds ([int]\$child.ProcessId)
+    }
+}
 \$waited = 0
 while (\$waited -lt 180) {
-    \$innoChild = Get-Process -Name "is-*" -ErrorAction SilentlyContinue
-    if (-not \$innoChild) { break }
+    \$installerChildren = @(Get-DescendantProcessIds ([int]\$proc.Id))
+    \$innoChild = @(Get-Process -Name "is-*", "Setup" -ErrorAction SilentlyContinue)
+    if ((\$installerChildren.Count -eq 0) -and (\$innoChild.Count -eq 0)) { break }
     Start-Sleep -Seconds 1
     \$waited++
 }
 Write-UpdateLog "Inno Setup worker processes finished (waited \$waited seconds)."
 
 # 4. Resolve installed executable location
-\$targetExe = "$appExePath"
-\$targetDir = "$appDir"
-
-if (Test-Path "C:\\Program Files\\ShopFlow POS\\pos_system.exe") {
-    \$targetExe = "C:\\Program Files\\ShopFlow POS\\pos_system.exe"
-    \$targetDir = "C:\\Program Files\\ShopFlow POS"
-} elseif (Test-Path "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe") {
-    \$targetExe = "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe"
-    \$targetDir = "C:\\Program Files (x86)\\ShopFlow POS"
-} elseif (Test-Path "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe") {
-    \$targetExe = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe"
-    \$targetDir = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS"
-}
+if (-not (Test-Path \$targetExe -PathType Leaf)) { Fail-Update "Installed executable is missing: \$targetExe" }
+\$installedFile = Get-Item \$targetExe
+\$installedVersion = \$installedFile.VersionInfo.ProductVersion
+if (-not \$installedVersion.StartsWith(\$expectedVersion)) { Fail-Update "Installed version is \$installedVersion, expected \$expectedVersion." }
+\$installedHash = (Get-FileHash -LiteralPath \$targetExe -Algorithm SHA256).Hash
+if (-not \$installedHash) { Fail-Update "Could not hash installed executable." }
+\$installedTimestamp = \$installedFile.LastWriteTimeUtc.ToString('o')
+Write-UpdateLog "Installed executable verified: version=\$installedVersion, timestamp=\$installedTimestamp, sha256=\$installedHash"
 
 # 5. Brief pause to ensure all file handles are fully released by Windows
 Start-Sleep -Milliseconds 1000
@@ -615,22 +650,28 @@ Start-Sleep -Milliseconds 1000
 Write-UpdateLog "Relaunching application at: \$targetExe"
 if (Test-Path \$targetExe) {
     try {
-        Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir
-        Write-UpdateLog "Application successfully relaunched via Start-Process."
+        \$newProcess = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
+        Write-UpdateLog "Application launch returned PID \$([int]\$newProcess.Id). Waiting for health..."
+        Start-Sleep -Seconds 5
+        \$stillRunning = Get-Process -Id \$newProcess.Id -ErrorAction SilentlyContinue
+        if (-not \$stillRunning) {
+            \$newProcess.Refresh()
+            \$processExitCode = \$newProcess.ExitCode
+            Fail-Update "Application exited immediately with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
+        }
+        Write-UpdateLog "Application remained running after health window. Update succeeded."
     } catch {
-        Write-UpdateLog "Start-Process failed: \$_ . Falling back to explorer.exe..."
-        Start-Process -FilePath "explorer.exe" -ArgumentList "`"\$targetExe`""
-        Write-UpdateLog "Application launched via Explorer fallback."
+        Fail-Update "Application launch failed: \$_"
     }
 } else {
-    Write-UpdateLog "ERROR: Could not find target application at \$targetExe"
+    Fail-Update "Could not find target application at \$targetExe"
 }
 
 Write-UpdateLog "Updater script execution complete."
 Write-UpdateLog "=========================================="
 
 # 7. Clean up the script file
-Start-Sleep -Seconds 3
+Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''';
 
@@ -690,4 +731,12 @@ Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
     }
     return File(p.join(updateDir.path, fileName));
   }
+
+  static String _versionFromInstallerName(File installer) {
+    final match = RegExp(r'[vV](\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?)')
+        .firstMatch(p.basename(installer.path));
+    return match?.group(1) ?? 'unknown';
+  }
+
+  static String _psQuote(String value) => "'${value.replaceAll("'", "''")}'";
 }

@@ -197,7 +197,8 @@ class UpdateDialog extends StatefulWidget {
                     child: OutlinedButton(
                       onPressed: () => Navigator.of(dialogCtx).pop(),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: NovaColors.borderTertiary),
+                        side:
+                            const BorderSide(color: NovaColors.borderTertiary),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -328,7 +329,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
   Future<void> _handleRelaunch() async {
     if (_downloadedFile == null || !await _downloadedFile!.exists()) {
       setState(() {
-        _errorMessage = 'Downloaded update file was not found. Please try downloading again.';
+        _errorMessage =
+            'Downloaded update file was not found. Please try downloading again.';
         _isDownloaded = false;
       });
       return;
@@ -336,11 +338,16 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
     setState(() => _isLaunching = true);
 
-    final success = await UpdateService.relaunchAndInstall(_downloadedFile!);
+    final success = await UpdateService.relaunchAndInstall(
+      _downloadedFile!,
+      expectedVersion: widget.release.version,
+      expectedDigest: widget.release.assetDigest,
+    );
     if (!success && mounted) {
       setState(() {
         _isLaunching = false;
-        _errorMessage = 'Failed to launch installer automatically. Please run the downloaded file from: ${_downloadedFile!.path}';
+        _errorMessage =
+            'Failed to launch installer automatically. Please run the downloaded file from: ${_downloadedFile!.path}';
       });
     }
   }
@@ -482,9 +489,8 @@ class _UpdateDialogState extends State<UpdateDialog> {
           IconButton(
             tooltip: 'Close',
             icon: const Icon(Icons.close_rounded, color: Colors.white70),
-            onPressed: _isDownloading
-                ? null
-                : () => Navigator.of(context).pop(),
+            onPressed:
+                _isDownloading ? null : () => Navigator.of(context).pop(),
           ),
         ],
       ),

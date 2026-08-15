@@ -42,7 +42,8 @@ void main() {
   });
 
   group('AppRelease JSON Parsing Tests', () {
-    test('Correctly parses release metadata and locates Windows .exe asset', () {
+    test('Correctly parses release metadata and locates Windows .exe asset',
+        () {
       final json = {
         'tag_name': 'v1.1.0',
         'name': 'ShopFlow POS v1.1.0 Production Release',
@@ -78,6 +79,39 @@ void main() {
       );
       expect(release.formattedSize, equals('45.0 MB'));
       expect(release.formattedPublishedDate, contains('Aug 14, 2026'));
+    });
+
+    test(
+        'Selects the installer matching the release version, not the first exe',
+        () {
+      final release = AppRelease.fromJson({
+        'tag_name': 'v1.1.9',
+        'assets': [
+          {'name': 'ShopFlow_POS_Setup_v1.1.8.exe', 'size': 10},
+          {
+            'name': 'ShopFlow_POS_Setup_v1.1.9.exe',
+            'size': 20,
+            'digest': 'sha256:abc123',
+          },
+        ],
+      });
+
+      expect(release.assetName, 'ShopFlow_POS_Setup_v1.1.9.exe');
+      expect(release.assetSize, 20);
+      expect(release.assetDigest, 'abc123');
+    });
+
+    test(
+        'Does not silently select a stale exe when no versioned installer exists',
+        () {
+      final release = AppRelease.fromJson({
+        'tag_name': 'v1.1.9',
+        'assets': [
+          {'name': 'ShopFlow_POS_Setup_v1.1.8.exe', 'size': 10},
+        ],
+      });
+
+      expect(release.assetName, isNull);
     });
   });
 

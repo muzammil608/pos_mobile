@@ -49,13 +49,19 @@ Write-Host "Found Inno Setup Compiler at: $isccPath" -ForegroundColor Green
 
 # 3. Compile Inno Setup Script
 Write-Host "`n[3/3] Generating Setup.exe Installer..." -ForegroundColor Yellow
-& "$isccPath" "windows\installer.iss"
+$pubspecVersion = (Select-String -Path "pubspec.yaml" -Pattern '^version:\s*([^+\s]+)' | Select-Object -First 1).Matches.Groups[1].Value
+if (-not $pubspecVersion) {
+    Write-Error "Could not read the app version from pubspec.yaml."
+    exit 1
+}
+Write-Host "Using installer version: $pubspecVersion" -ForegroundColor White
+& "$isccPath" "/DMyAppVersion=$pubspecVersion" "windows\installer.iss"
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "`n========================================" -ForegroundColor Green
     Write-Host " BUILD SUCCESSFUL!                      " -ForegroundColor Green
     Write-Host " Installer created at:                 " -ForegroundColor Green
-    Write-Host " build\windows\installer\shopflow.setup.exe" -ForegroundColor Cyan
+    Write-Host " build\windows\installer\ShopFlow_POS_Setup_v$pubspecVersion.exe" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Green
 } else {
     Write-Error "Inno Setup compilation failed!"
