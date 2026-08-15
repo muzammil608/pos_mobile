@@ -584,6 +584,39 @@ class UpdateService {
     }
   }
 
+  /// Generates the contents of the independent VBScript bootstrap file.
+  static String generateBootstrapVbsContent({
+    required String psScriptPath,
+    required String debugLogPath,
+  }) {
+    final escapedPsScript = psScriptPath.replaceAll('"', '""');
+    final escapedDebugLog = debugLogPath.replaceAll('"', '""');
+    return '''Option Explicit
+Dim objShell, fso, logFile
+Set objShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+Sub WriteLog(msg)
+    On Error Resume Next
+    Set logFile = fso.OpenTextFile("$escapedDebugLog", 8, True)
+    If Err.Number = 0 Then
+        logFile.WriteLine "[" & Now & "] [BOOTSTRAP-VBS] " & msg
+        logFile.Close
+    End If
+    On Error GoTo 0
+End Sub
+
+WriteLog "Stage 1/7: Bootstrap script started"
+WriteLog "Launching PowerShell updater completely detached: $escapedPsScript"
+
+Dim psCmd
+psCmd = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPsScript"""
+objShell.Run psCmd, 0, False
+
+WriteLog "PowerShell updater process spawned via Windows Shell. Bootstrap exiting cleanly."
+''';
+  }
+
   /// Generates the contents of the PowerShell updater script.
   static String generateUpdaterScriptContent({
     required String installerPath,
@@ -595,6 +628,7 @@ class UpdateService {
     required String debugLogPath,
     required String innoLogPath,
     required String errorLogPath,
+    String? bootstrapVbsPath,
   }) {
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
@@ -607,6 +641,7 @@ class UpdateService {
 \$debugLog = ${_psQuote(debugLogPath)}
 \$innoLog = ${_psQuote(innoLogPath)}
 \$errorLog = ${_psQuote(errorLogPath)}
+\$bootstrapVbs = ${_psQuote(bootstrapVbsPath ?? '')}
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -622,10 +657,11 @@ function Fail-Update(\$msg) {
 }
 
 Write-UpdateLog "=========================================="
-Write-UpdateLog "Starting PowerShell background updater script"
+Write-UpdateLog "Stage 1/7: Bootstrap started (PowerShell background updater initializing)"
 Write-UpdateLog "Target EXE: \$targetExe"
 Write-UpdateLog "Installer: \$installer"
 Write-UpdateLog "Expected Version: \$expectedVersion"
+Write-UpdateLog "Expected SHA256: \$expectedDigest"
 
 if (Test-Path \$failedMarker) {
     Write-UpdateLog "Refusing repeated attempt for failed installer."
@@ -650,10 +686,10 @@ if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
     Write-UpdateLog "Installer SHA-256 verified successfully."
 }
 
-# 1. Wait for current Flutter application and PocketBase to completely terminate
-Write-UpdateLog "Waiting for app processes (pos_system, pocketbase) to exit..."
+# 2. Wait for current Flutter application and PocketBase to completely terminate
+Write-UpdateLog "Stage 2/7: Waiting for pos_system.exe and pocketbase.exe to exit..."
 \$waitIterations = 0
-while (\$waitIterations -lt 10) {
+while (\$waitIterations -lt 15) {
     \$runningApp = Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue
     if (-not \$runningApp) { break }
     Start-Sleep -Milliseconds 500
@@ -665,8 +701,8 @@ Get-Process -Name "pos_system" -ErrorAction SilentlyContinue | Stop-Process -For
 Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
-# 2. Execute elevated installer and wait for full completion
-Write-UpdateLog "Launching elevated Inno Setup installer..."
+# 3. Execute elevated installer and wait for full completion
+Write-UpdateLog "Stage 3/7: Launching installer with UAC elevation: \$installer"
 \$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS=0", "/LOG=`"\$innoLog`"")
 
 try {
@@ -674,10 +710,10 @@ try {
     if (\$null -eq \$proc) {
         Fail-Update "Start-Process returned null process handle."
     }
-    Write-UpdateLog "Installer process started (PID: \$(\$proc.Id)). Waiting for completion..."
+    Write-UpdateLog "Installer process started (PID: \$(\$proc.Id)). Waiting for installer completion..."
     \$proc.WaitForExit()
     \$exitCode = \$proc.ExitCode
-    Write-UpdateLog "Installer process exited with code: \$exitCode"
+    Write-UpdateLog "Stage 4/7: Installer exit code: \$exitCode"
     if (\$exitCode -ne 0) {
         Fail-Update "Installer exited with non-zero exit code \$exitCode. See installer log at \$innoLog"
     }
@@ -685,10 +721,11 @@ try {
     Fail-Update "Failed to launch installer elevated (User may have cancelled UAC prompt or access denied): \$_"
 }
 
-# 3. Brief pause to ensure all file handles are fully released by Windows
+# 4. Brief pause to ensure all file handles are fully released by Windows
 Start-Sleep -Seconds 2
 
-# 4. Resolve installed executable location and verify product version
+# 5. Resolve installed executable location and verify product version
+Write-UpdateLog "Stage 5/7: Verifying installed executable and version..."
 if (-not (Test-Path \$targetExe -PathType Leaf)) {
     Fail-Update "Installed executable is missing at target location: \$targetExe"
 }
@@ -696,7 +733,7 @@ if (-not (Test-Path \$targetExe -PathType Leaf)) {
 \$installedFile = Get-Item -LiteralPath \$targetExe
 \$installedVersion = \$installedFile.VersionInfo.ProductVersion
 \$installedTimestamp = \$installedFile.LastWriteTimeUtc.ToString('o')
-Write-UpdateLog "Installed executable found: version=\$installedVersion, lastModified=\$installedTimestamp"
+Write-UpdateLog "Installed version: \$installedVersion (Path: \$targetExe, Modified: \$installedTimestamp)"
 
 if (\$expectedVersion -and \$expectedVersion.Trim() -ne "") {
     if (-not \$installedVersion.StartsWith(\$expectedVersion)) {
@@ -704,35 +741,38 @@ if (\$expectedVersion -and \$expectedVersion.Trim() -ne "") {
     }
 }
 
-# 5. Relaunch the upgraded application in standard desktop session
-Write-UpdateLog "Relaunching application at: \$targetExe (WorkingDirectory: \$targetDir)"
+# 6. Relaunch the upgraded application in standard desktop session
+Write-UpdateLog "Stage 6/7: Relaunching application at: \$targetExe (WorkingDirectory: \$targetDir)"
 try {
     \$newProcess = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
     if (\$null -eq \$newProcess) {
         Fail-Update "Application launch returned null process object."
     }
-    Write-UpdateLog "Application process launched with PID \$([int]\$newProcess.Id). Monitoring startup health..."
+    Write-UpdateLog "Application process launched (PID: \$([int]\$newProcess.Id)). Monitoring startup health for 5 seconds..."
     Start-Sleep -Seconds 5
     \$stillRunning = Get-Process -Id \$newProcess.Id -ErrorAction SilentlyContinue
     if (-not \$stillRunning) {
         \$newProcess.Refresh()
         \$processExitCode = \$newProcess.ExitCode
-        Fail-Update "Application exited immediately with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
+        Fail-Update "Stage 7/7: Application health result: Process exited unexpectedly with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
     }
-    Write-UpdateLog "Application is alive and healthy (PID \$([int]\$newProcess.Id)). Update transaction complete!"
+    Write-UpdateLog "Stage 7/7: Application health result: Process is alive and healthy (PID: \$([int]\$newProcess.Id)). Update transaction complete!"
 } catch {
     Fail-Update "Application relaunch failed: \$_"
 }
 
-# 6. Clean up temporary script and failed marker on success (Logs are preserved)
+# 7. Clean up temporary script and failed marker on success (Logs are preserved)
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
+if (\$bootstrapVbs -and (Test-Path \$bootstrapVbs)) {
+    Remove-Item -Path \$bootstrapVbs -Force -ErrorAction SilentlyContinue
+}
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 Write-UpdateLog "Updater script completed successfully."
 Write-UpdateLog "=========================================="
 ''';
   }
 
-  /// Starts a detached updater. The updater owns the rest of the transaction
+  /// Starts an independent bootstrap updater. The updater owns the rest of the transaction
   /// because this process must exit before an installed executable can change.
   static Future<bool> relaunchAndInstall(
     File installerFile, {
@@ -791,21 +831,20 @@ Write-UpdateLog "=========================================="
           } catch (_) {}
         }
 
+        writeLauncherLog('==========================================');
         writeLauncherLog('Initiate update transaction');
         writeLauncherLog('Installer: $installerPath');
         writeLauncherLog('TargetExe: $appExePath');
         writeLauncherLog('TargetDir: $appDir');
         writeLauncherLog('ExpectedVersion: $version');
-        writeLauncherLog(
-          'ExpectedSHA256: ${expectedDigest ?? "None"}',
-        );
+        writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
         final psScriptFile = File(
-          p.join(
-            updateDir.path,
-            'shopflow_updater_'
-            '${DateTime.now().millisecondsSinceEpoch}.ps1',
-          ),
+          p.join(updateDir.path, 'shopflow_updater_$nowMs.ps1'),
+        );
+        final vbsScriptFile = File(
+          p.join(updateDir.path, 'shopflow_bootstrap_$nowMs.vbs'),
         );
 
         final scriptContent = generateUpdaterScriptContent(
@@ -818,55 +857,53 @@ Write-UpdateLog "=========================================="
           debugLogPath: debugLogPath,
           innoLogPath: innoLogPath,
           errorLogPath: errorLogPath,
+          bootstrapVbsPath: vbsScriptFile.path,
         );
 
         await psScriptFile.writeAsString(
           scriptContent,
           flush: true,
         );
+        writeLauncherLog('PowerShell updater written: ${psScriptFile.path}');
 
-        writeLauncherLog('Script written: ${psScriptFile.path}');
-
-        const systemPowerShell =
-            r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
-
-        final powershellExe = File(systemPowerShell).existsSync()
-            ? systemPowerShell
-            : 'powershell.exe';
-
-        // Launch PowerShell directly.
-        // Do not use cmd.exe /c start because it returns the cmd.exe PID
-        // and does not prove that the updater script actually executed.
-        writeLauncherLog(
-          'Starting PowerShell directly: $powershellExe',
+        final vbsContent = generateBootstrapVbsContent(
+          psScriptPath: psScriptFile.path,
+          debugLogPath: debugLogPath,
         );
+        await vbsScriptFile.writeAsString(
+          vbsContent,
+          flush: true,
+        );
+        writeLauncherLog('Bootstrap launcher written: ${vbsScriptFile.path}');
 
-        final updaterProcess = await Process.start(
-          powershellExe,
-          [
-            '-NoLogo',
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            psScriptFile.path,
-          ],
-          mode: ProcessStartMode.detached,
+        final systemWScript = p.join(
+          Platform.environment['SystemRoot'] ?? r'C:\Windows',
+          'System32',
+          'wscript.exe',
+        );
+        final wscriptExe =
+            File(systemWScript).existsSync() ? systemWScript : 'wscript.exe';
+
+        writeLauncherLog('Executing bootstrap launcher: $wscriptExe');
+
+        final bootstrapResult = await Process.run(
+          wscriptExe,
+          [vbsScriptFile.path],
           workingDirectory: updateDir.path,
         );
 
-        if (updaterProcess.pid <= 0) {
+        if (bootstrapResult.exitCode != 0) {
+          writeLauncherLog(
+            'Bootstrap launcher failed with exit code ${bootstrapResult.exitCode}: ${bootstrapResult.stderr}',
+          );
           throw StateError(
-            'PowerShell updater returned an invalid process ID.',
+            'Bootstrap launcher failed with exit code ${bootstrapResult.exitCode}',
           );
         }
 
         writeLauncherLog(
-          'PowerShell updater launched successfully '
-          '(PID: ${updaterProcess.pid})',
+          'Bootstrap launcher executed successfully (ExitCode: 0)',
         );
-
         writeLauncherLog('Exiting application for update transaction');
 
         await Future<void>.delayed(
