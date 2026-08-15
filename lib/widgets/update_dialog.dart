@@ -356,10 +356,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
     }
   }
 
-  Future<void> _openReleaseUrl() async {
-    await UpdateService.openReleasePage(widget.release.htmlUrl);
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -637,7 +633,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Metadata chips (Date, Size, View on GitHub)
+        // Metadata chips (Date, Size)
         Wrap(
           spacing: 8,
           runSpacing: 6,
@@ -645,7 +641,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
           children: [
             _buildMetaChip(
               icon: Icons.alt_route_rounded,
-              label: widget.release.isPrerelease ? 'Beta Channel' : 'Stable Channel',
+              label: widget.release.isPrerelease
+                  ? 'Beta Channel'
+                  : 'Stable Channel',
             ),
             if (release.formattedPublishedDate.isNotEmpty)
               _buildMetaChip(
@@ -657,32 +655,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 icon: Icons.folder_zip_rounded,
                 label: release.formattedSize,
               ),
-            InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: _openReleaseUrl,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'View on GitHub',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: CafeColors.flame,
-                      ),
-                    ),
-                    SizedBox(width: 4),
-                    Icon(
-                      Icons.open_in_new_rounded,
-                      size: 12,
-                      color: CafeColors.flame,
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ],
         ),
 
