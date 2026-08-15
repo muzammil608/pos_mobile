@@ -30,9 +30,8 @@ PrivilegesRequired=admin
 OutputDir={#OutputDir}
 OutputBaseFilename=ShopFlow_POS_Setup_v{#MyAppVersion}
 
-; Automatically close running app/backend during updates
-CloseApplications=yes
-CloseApplicationsFilter=*pos_system.exe,*pocketbase.exe
+; Disable RestartManager integration since updater script terminates processes beforehand
+CloseApplications=no
 RestartApplications=no
 
 [Languages]

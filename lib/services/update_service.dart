@@ -613,6 +613,8 @@ Dim psArgs
 psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPsScript"""
 objShellApp.ShellExecute "powershell.exe", psArgs, "", "", 0
 
+WScript.Sleep 500
+
 WriteLog "PowerShell updater process dispatched to desktop shell. Bootstrap exiting cleanly."
 ''';
   }
@@ -712,7 +714,7 @@ Start-Sleep -Seconds 1
 
 # 3. Execute elevated installer and wait for full completion
 Write-UpdateLog "Stage 3/7: Launching installer with UAC elevation: \$installer"
-\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS=0", "/LOG=`"\$innoLog`"")
+\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"\$innoLog`"")
 
 try {
     \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru
