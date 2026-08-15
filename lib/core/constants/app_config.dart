@@ -18,8 +18,8 @@ class AppConfig {
   static const String appName = 'ShopFlow POS';
   
   /// Application version string (synchronize with pubspec.yaml and windows/installer.iss)
-  static const String currentVersion = '1.2.0-beta.7';
-  static const String buildSignature = '1.2.0-beta.7+69';
+  static const String currentVersion = '1.2.0-beta.8';
+  static const String buildSignature = '1.2.0-beta.8+70';
 
   /// Active update channel (defaults to beta channel for development builds)
   static UpdateChannel defaultChannel = UpdateChannel.beta;
