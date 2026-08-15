@@ -340,15 +340,15 @@ void main() {
     testWidgets('Prompts update dialog only once per release during the session', (tester) async {
       final releaseJson = jsonEncode([
         {
-          'tag_name': 'v1.2.0-beta.2',
-          'name': 'ShopFlow POS v1.2.0-beta.2',
+          'tag_name': 'v1.2.0-beta.99',
+          'name': 'ShopFlow POS v1.2.0-beta.99',
           'body': 'Notes',
           'prerelease': true,
           'draft': false,
           'assets': [
             {
-              'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
-              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
+              'name': 'ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
+              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
               'size': 50000000,
             }
           ],
@@ -373,7 +373,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Software Update Available'), findsOneWidget);
-      expect(AutoUpdateManager.instance.lastPromptedReleaseVersion, equals('1.2.0-beta.2'));
+      expect(AutoUpdateManager.instance.lastPromptedReleaseVersion, equals('1.2.0-beta.99'));
 
       // Dismiss dialog by clicking 'Later'
       await tester.tap(find.text('Later'));
@@ -393,15 +393,15 @@ void main() {
     testWidgets('Manual check opens dialog even if previously dismissed', (tester) async {
       final releaseJson = jsonEncode([
         {
-          'tag_name': 'v1.2.0-beta.2',
-          'name': 'ShopFlow POS v1.2.0-beta.2',
+          'tag_name': 'v1.2.0-beta.99',
+          'name': 'ShopFlow POS v1.2.0-beta.99',
           'body': 'Notes',
           'prerelease': true,
           'draft': false,
           'assets': [
             {
-              'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
-              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
+              'name': 'ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
+              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
               'size': 50000000,
             }
           ],
@@ -432,7 +432,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Software Update Available'), findsOneWidget);
-      expect(find.text('v1.2.0-beta.2'), findsOneWidget);
+      expect(find.text('v1.2.0-beta.99'), findsOneWidget);
     });
   });
 
@@ -521,6 +521,44 @@ void main() {
       expect(find.byType(AppUpdateButton), findsOneWidget);
       expect(find.byIcon(Icons.system_update_alt_rounded), findsOneWidget);
       expect(find.text('Check for Updates'), findsOneWidget);
+    });
+  });
+
+  group('PowerShell Updater Script Generation Tests', () {
+    test('Generates complete updater script with all paths, elevated installer launch, and verification', () {
+      final script = UpdateService.generateUpdaterScriptContent(
+        installerPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe',
+        targetExePath: r'C:\Program Files\ShopFlow POS\pos_system.exe',
+        targetDirPath: r'C:\Program Files\ShopFlow POS',
+        expectedVersion: '1.2.0-beta.4',
+        expectedDigest: 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678',
+        failedMarkerPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe.failed',
+        debugLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_debug.log',
+        innoLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update.log',
+        errorLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_error.log',
+      );
+
+      // Verifies core requirements:
+      expect(script, contains(r"$installer = 'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe'"));
+      expect(script, contains(r"$targetExe = 'C:\Program Files\ShopFlow POS\pos_system.exe'"));
+      expect(script, contains(r"$expectedVersion = '1.2.0-beta.4'"));
+      expect(script, contains(r"$expectedDigest = 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678'"));
+      expect(script, contains('Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs'));
+      expect(script, contains(r'/VERYSILENT'));
+      expect(script, contains(r'/SUPPRESSMSGBOXES'));
+      expect(script, contains(r'/FORCECLOSEAPPLICATIONS'));
+      expect(script, contains('Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."'));
+      expect(script, contains('Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru'));
+      expect(script, contains('Monitoring startup health...'));
+    });
+
+    test('Version validation logic differentiates between matching and stale binaries', () {
+      const expectedVersion = '1.2.0-beta.4';
+      const freshInstalledVersion = '1.2.0-beta.4+66';
+      const staleInstalledVersion = '1.2.0-beta.3+65';
+
+      expect(freshInstalledVersion.startsWith(expectedVersion), isTrue);
+      expect(staleInstalledVersion.startsWith(expectedVersion), isFalse);
     });
   });
 

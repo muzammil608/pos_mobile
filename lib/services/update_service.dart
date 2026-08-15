@@ -584,6 +584,154 @@ class UpdateService {
     }
   }
 
+  /// Generates the contents of the PowerShell updater script.
+  static String generateUpdaterScriptContent({
+    required String installerPath,
+    required String targetExePath,
+    required String targetDirPath,
+    required String expectedVersion,
+    String? expectedDigest,
+    required String failedMarkerPath,
+    required String debugLogPath,
+    required String innoLogPath,
+    required String errorLogPath,
+  }) {
+    return '''# ShopFlow POS Automated Background Updater
+\$ErrorActionPreference = 'Continue'
+\$installer = ${_psQuote(installerPath)}
+\$targetExe = ${_psQuote(targetExePath)}
+\$targetDir = ${_psQuote(targetDirPath)}
+\$expectedVersion = ${_psQuote(expectedVersion)}
+\$expectedDigest = ${_psQuote(expectedDigest ?? '')}
+\$failedMarker = ${_psQuote(failedMarkerPath)}
+\$debugLog = ${_psQuote(debugLogPath)}
+\$innoLog = ${_psQuote(innoLogPath)}
+\$errorLog = ${_psQuote(errorLogPath)}
+
+function Write-UpdateLog(\$msg) {
+    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
+}
+
+function Fail-Update(\$msg) {
+    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-UpdateLog "FATAL ERROR: \$msg"
+    "[\$timestamp] ERROR: \$msg" | Out-File -FilePath \$errorLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
+    \$msg | Out-File -FilePath \$failedMarker -Encoding utf8 -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+
+Write-UpdateLog "=========================================="
+Write-UpdateLog "Starting PowerShell background updater script"
+Write-UpdateLog "Target EXE: \$targetExe"
+Write-UpdateLog "Installer: \$installer"
+Write-UpdateLog "Expected Version: \$expectedVersion"
+
+if (Test-Path \$failedMarker) {
+    Write-UpdateLog "Refusing repeated attempt for failed installer."
+    exit 2
+}
+
+if (-not (Test-Path \$installer -PathType Leaf)) {
+    Fail-Update "Installer does not exist at: \$installer"
+}
+
+\$installerInfo = Get-Item -LiteralPath \$installer
+if (\$installerInfo.Length -lt 1MB) {
+    Fail-Update "Installer file is unexpectedly small (\$([int64]\$installerInfo.Length) bytes)."
+}
+
+if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
+    Write-UpdateLog "Verifying installer SHA-256..."
+    \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) {
+        Fail-Update "Installer SHA-256 mismatch. Expected \$expectedDigest, got \$actualDigest."
+    }
+    Write-UpdateLog "Installer SHA-256 verified successfully."
+}
+
+# 1. Wait for current Flutter application and PocketBase to completely terminate
+Write-UpdateLog "Waiting for app processes (pos_system, pocketbase) to exit..."
+\$waitIterations = 0
+while (\$waitIterations -lt 10) {
+    \$runningApp = Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue
+    if (-not \$runningApp) { break }
+    Start-Sleep -Milliseconds 500
+    \$waitIterations++
+}
+
+# Force terminate any lingering app or pocketbase processes
+Get-Process -Name "pos_system" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+# 2. Execute elevated installer and wait for full completion
+Write-UpdateLog "Launching elevated Inno Setup installer..."
+\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS=0", "/LOG=`"\$innoLog`"")
+
+try {
+    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru
+    if (\$null -eq \$proc) {
+        Fail-Update "Start-Process returned null process handle."
+    }
+    Write-UpdateLog "Installer process started (PID: \$(\$proc.Id)). Waiting for completion..."
+    \$proc.WaitForExit()
+    \$exitCode = \$proc.ExitCode
+    Write-UpdateLog "Installer process exited with code: \$exitCode"
+    if (\$exitCode -ne 0) {
+        Fail-Update "Installer exited with non-zero exit code \$exitCode. See installer log at \$innoLog"
+    }
+} catch {
+    Fail-Update "Failed to launch installer elevated (User may have cancelled UAC prompt or access denied): \$_"
+}
+
+# 3. Brief pause to ensure all file handles are fully released by Windows
+Start-Sleep -Seconds 2
+
+# 4. Resolve installed executable location and verify product version
+if (-not (Test-Path \$targetExe -PathType Leaf)) {
+    Fail-Update "Installed executable is missing at target location: \$targetExe"
+}
+
+\$installedFile = Get-Item -LiteralPath \$targetExe
+\$installedVersion = \$installedFile.VersionInfo.ProductVersion
+\$installedTimestamp = \$installedFile.LastWriteTimeUtc.ToString('o')
+Write-UpdateLog "Installed executable found: version=\$installedVersion, lastModified=\$installedTimestamp"
+
+if (\$expectedVersion -and \$expectedVersion.Trim() -ne "") {
+    if (-not \$installedVersion.StartsWith(\$expectedVersion)) {
+        Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."
+    }
+}
+
+# 5. Relaunch the upgraded application in standard desktop session
+Write-UpdateLog "Relaunching application at: \$targetExe (WorkingDirectory: \$targetDir)"
+try {
+    \$newProcess = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
+    if (\$null -eq \$newProcess) {
+        Fail-Update "Application launch returned null process object."
+    }
+    Write-UpdateLog "Application process launched with PID \$([int]\$newProcess.Id). Monitoring startup health..."
+    Start-Sleep -Seconds 5
+    \$stillRunning = Get-Process -Id \$newProcess.Id -ErrorAction SilentlyContinue
+    if (-not \$stillRunning) {
+        \$newProcess.Refresh()
+        \$processExitCode = \$newProcess.ExitCode
+        Fail-Update "Application exited immediately with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
+    }
+    Write-UpdateLog "Application is alive and healthy (PID \$([int]\$newProcess.Id)). Update transaction complete!"
+} catch {
+    Fail-Update "Application relaunch failed: \$_"
+}
+
+# 6. Clean up temporary script and failed marker on success (Logs are preserved)
+Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
+Write-UpdateLog "Updater script completed successfully."
+Write-UpdateLog "=========================================="
+''';
+  }
+
   /// Starts a detached updater. The updater owns the rest of the transaction
   /// because this process must exit before an installed executable can change.
   static Future<bool> relaunchAndInstall(File installerFile,
@@ -605,158 +753,95 @@ class UpdateService {
             p.normalize(File(Platform.resolvedExecutable).parent.path);
         final version =
             expectedVersion ?? _versionFromInstallerName(installerFile);
-        final failedMarker = '${installerFile.path}.failed';
+        final failedMarkerPath = '${installerFile.path}.failed';
+
+        final tempDir = Directory.systemTemp;
+        final updateDir = Directory(p.join(tempDir.path, 'ShopFlow_Update'));
+        if (!updateDir.existsSync()) {
+          updateDir.createSync(recursive: true);
+        }
+
+        final debugLogPath = p.join(updateDir.path, 'ShopFlow_Update_debug.log');
+        final innoLogPath = p.join(updateDir.path, 'ShopFlow_Update.log');
+        final errorLogPath = p.join(updateDir.path, 'ShopFlow_Update_error.log');
+
+        final timestampStr = DateTime.now().toIso8601String();
+        final dartLogEntry = '''==========================================
+[$timestampStr] [DART-LAUNCHER] Initiate update transaction
+[$timestampStr] [DART-LAUNCHER] Installer: $installerPath
+[$timestampStr] [DART-LAUNCHER] TargetExe: $appExePath
+[$timestampStr] [DART-LAUNCHER] TargetDir: $appDir
+[$timestampStr] [DART-LAUNCHER] ExpectedVersion: $version
+[$timestampStr] [DART-LAUNCHER] ExpectedSHA256: ${expectedDigest ?? "None"}
+''';
+        try {
+          File(debugLogPath).writeAsStringSync(dartLogEntry, mode: FileMode.append, flush: true);
+        } catch (_) {}
 
         // 2. Generate a dedicated background PowerShell relauncher script in temp directory
-        final tempDir = Directory.systemTemp;
         final psScriptFile = File(p.join(
-          tempDir.path,
-          'ShopFlow_Update',
+          updateDir.path,
           'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.ps1',
         ));
 
-        if (!psScriptFile.parent.existsSync()) {
-          psScriptFile.parent.createSync(recursive: true);
-        }
-
-        final scriptContent = '''# ShopFlow POS Automated Background Updater
-\$ErrorActionPreference = 'Stop'
-\$installer = ${_psQuote(installerPath)}
-\$targetExe = ${_psQuote(appExePath)}
-\$targetDir = ${_psQuote(appDir)}
-\$expectedVersion = ${_psQuote(version)}
-\$expectedDigest = ${_psQuote(expectedDigest ?? '')}
-\$failedMarker = ${_psQuote(failedMarker)}
-\$tempDir = [System.IO.Path]::GetTempPath()
-\$updateDir = Join-Path \$tempDir "ShopFlow_Update"
-\$debugLog = Join-Path \$updateDir "ShopFlow_Update_debug.log"
-\$innoLog = Join-Path \$updateDir "ShopFlow_Update.log"
-
-function Write-UpdateLog(\$msg) {
-    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8
-}
-
-Write-UpdateLog "=========================================="
-Write-UpdateLog "Starting PowerShell background updater script"
-Write-UpdateLog "Target EXE: \$targetExe"
-Write-UpdateLog "Installer: \$installer"
-Write-UpdateLog "Expected version: \$expectedVersion"
-
-function Fail-Update(\$message) {
-    Write-UpdateLog "ERROR: \$message"
-    \$message | Out-File -FilePath \$failedMarker -Encoding utf8 -Force
-    exit 1
-}
-
-if (Test-Path \$failedMarker) { Write-UpdateLog "Refusing repeated attempt for failed installer."; exit 2 }
-if (-not (Test-Path \$installer -PathType Leaf)) { Fail-Update "Installer does not exist." }
-\$installerInfo = Get-Item \$installer
-if (\$installerInfo.Length -lt 1MB) { Fail-Update "Installer is unexpectedly small (\$([int64]\$installerInfo.Length) bytes)." }
-if (\$expectedDigest) {
-    \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256).Hash.ToLowerInvariant()
-    if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) { Fail-Update "Installer SHA-256 mismatch. Expected \$expectedDigest, got \$actualDigest." }
-}
-
-# 1. Wait for current Flutter application and PocketBase to completely terminate
-Write-UpdateLog "Waiting for app process to exit..."
-Start-Sleep -Seconds 2
-Get-Process -Name "pos_system" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-
-# 2. Execute elevated installer and wait for full completion
-Write-UpdateLog "Launching elevated Inno Setup installer..."
-\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS=0", "/LOG=`"\$innoLog`"")
-
-try {
-    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru -Wait
-    \$exitCode = \$proc.ExitCode
-    Write-UpdateLog "Installer process exited with code: \$exitCode"
-    if (\$exitCode -ne 0) { Fail-Update "Installer failed with exit code \$exitCode." }
-} catch {
-    Fail-Update "Could not run installer elevated: \$_"
-}
-
-# 3. Wait for any Inno Setup temporary unpacker child processes (is-*.tmp) to finish
-Write-UpdateLog "Checking for child Inno Setup worker processes..."
-function Get-DescendantProcessIds(\$parentId) {
-    \$children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = \$parentId" -ErrorAction SilentlyContinue)
-    foreach (\$child in \$children) {
-        Write-Output ([int]\$child.ProcessId)
-        Get-DescendantProcessIds ([int]\$child.ProcessId)
-    }
-}
-\$waited = 0
-while (\$waited -lt 180) {
-    \$installerChildren = @(Get-DescendantProcessIds ([int]\$proc.Id))
-    \$innoChild = @(Get-Process -Name "is-*", "Setup" -ErrorAction SilentlyContinue)
-    if ((\$installerChildren.Count -eq 0) -and (\$innoChild.Count -eq 0)) { break }
-    Start-Sleep -Seconds 1
-    \$waited++
-}
-Write-UpdateLog "Inno Setup worker processes finished (waited \$waited seconds)."
-
-# 4. Resolve installed executable location
-if (-not (Test-Path \$targetExe -PathType Leaf)) { Fail-Update "Installed executable is missing: \$targetExe" }
-\$installedFile = Get-Item \$targetExe
-\$installedVersion = \$installedFile.VersionInfo.ProductVersion
-if (-not \$installedVersion.StartsWith(\$expectedVersion)) { Fail-Update "Installed version is \$installedVersion, expected \$expectedVersion." }
-\$installedHash = (Get-FileHash -LiteralPath \$targetExe -Algorithm SHA256).Hash
-if (-not \$installedHash) { Fail-Update "Could not hash installed executable." }
-\$installedTimestamp = \$installedFile.LastWriteTimeUtc.ToString('o')
-Write-UpdateLog "Installed executable verified: version=\$installedVersion, timestamp=\$installedTimestamp, sha256=\$installedHash"
-
-# 5. Brief pause to ensure all file handles are fully released by Windows
-Start-Sleep -Milliseconds 1000
-
-# 6. Relaunch the upgraded application in standard desktop session
-Write-UpdateLog "Relaunching application at: \$targetExe"
-if (Test-Path \$targetExe) {
-    try {
-        \$newProcess = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
-        Write-UpdateLog "Application launch returned PID \$([int]\$newProcess.Id). Waiting for health..."
-        Start-Sleep -Seconds 5
-        \$stillRunning = Get-Process -Id \$newProcess.Id -ErrorAction SilentlyContinue
-        if (-not \$stillRunning) {
-            \$newProcess.Refresh()
-            \$processExitCode = \$newProcess.ExitCode
-            Fail-Update "Application exited immediately with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
-        }
-        Write-UpdateLog "Application remained running after health window. Update succeeded."
-    } catch {
-        Fail-Update "Application launch failed: \$_"
-    }
-} else {
-    Fail-Update "Could not find target application at \$targetExe"
-}
-
-Write-UpdateLog "Updater script execution complete."
-Write-UpdateLog "=========================================="
-
-# 7. Clean up the script file
-Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
-Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
-''';
+        final scriptContent = generateUpdaterScriptContent(
+          installerPath: installerPath,
+          targetExePath: appExePath,
+          targetDirPath: appDir,
+          expectedVersion: version,
+          expectedDigest: expectedDigest,
+          failedMarkerPath: failedMarkerPath,
+          debugLogPath: debugLogPath,
+          innoLogPath: innoLogPath,
+          errorLogPath: errorLogPath,
+        );
 
         await psScriptFile.writeAsString(scriptContent);
 
-        // 3. Launch PowerShell detached to execute the update script silently
-        await Process.start(
-          'powershell.exe',
+        try {
+          File(debugLogPath).writeAsStringSync(
+            '[$timestampStr] [DART-LAUNCHER] Script written: ${psScriptFile.path}\n',
+            mode: FileMode.append,
+            flush: true,
+          );
+        } catch (_) {}
+
+        // 3. Locate powershell.exe
+        const sysPowerShell = r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
+        final powershellExe = File(sysPowerShell).existsSync() ? sysPowerShell : 'powershell.exe';
+
+        // 4. Launch detached PowerShell via cmd.exe /c start "" /b to ensure valid console subsystem & background execution
+        final spawnedProcess = await Process.start(
+          'cmd.exe',
           [
+            '/c',
+            'start',
+            '""',
+            '/b',
+            powershellExe,
+            '-NoLogo',
             '-NoProfile',
+            '-NonInteractive',
             '-ExecutionPolicy',
             'Bypass',
-            '-WindowStyle',
-            'Hidden',
             '-File',
             psScriptFile.path,
           ],
           mode: ProcessStartMode.detached,
+          workingDirectory: updateDir.path,
         );
 
-        // 4. Terminate current Flutter application process cleanly
+        try {
+          File(debugLogPath).writeAsStringSync(
+            '[$timestampStr] [DART-LAUNCHER] Detached updater launched (PID: ${spawnedProcess.pid}). Exiting application.\n'
+            '==========================================\n',
+            mode: FileMode.append,
+            flush: true,
+          );
+        } catch (_) {}
+
+        // 5. Terminate current Flutter application process cleanly
+        await Future<void>.delayed(const Duration(milliseconds: 200));
         exit(0);
       } else {
         // For other platforms, launch file or URL
