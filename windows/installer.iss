@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.13"
+  #define MyAppVersion "1.2.0-beta.14"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -52,4 +52,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; NOTE: "skipifsilent" was removed on purpose. The updater always runs this
+; installer with /VERYSILENT, and skipifsilent unconditionally skips the
+; [Run] entry in silent mode -- that was why the app never relaunched after
+; an update. "runasoriginaluser" keeps the relaunched app running under the
+; normal user's token instead of inheriting the installer's admin elevation.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall runasoriginaluser
