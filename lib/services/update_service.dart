@@ -613,11 +613,11 @@ Sub WriteLog(msg)
 End Sub
 
 WriteLog "Stage 1/7: Bootstrap script started"
-WriteLog "Dispatching PowerShell updater to Windows Explorer Desktop Shell: $escapedPsScript"
+WriteLog "Requesting elevated execution for PowerShell updater: $escapedPsScript"
 
 Dim psArgs
 psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""$escapedPsScript"""
-objShellApp.ShellExecute "powershell.exe", psArgs, "", "open", 0
+objShellApp.ShellExecute "powershell.exe", psArgs, "", "runas", 0
 
 WScript.Sleep 1000
 
@@ -719,11 +719,11 @@ Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -For
 Start-Sleep -Seconds 1
 
 # 3. Execute elevated installer and wait for full completion
-Write-UpdateLog "Stage 3/7: Launching installer with UAC elevation: \$installer"
+Write-UpdateLog "Stage 3/7: Launching installer: \$installer"
 \$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"\$innoLog`"")
 
 try {
-    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru
+    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -PassThru
     if (\$null -eq \$proc) {
         Fail-Update "Start-Process returned null process handle."
     }
@@ -735,7 +735,7 @@ try {
         Fail-Update "Installer exited with non-zero exit code \$exitCode. See installer log at \$innoLog"
     }
 } catch {
-    Fail-Update "Failed to launch installer elevated (User may have cancelled UAC prompt or access denied): \$_"
+    Fail-Update "Failed to launch installer: \$_"
 }
 
 # 4. Brief pause to ensure all file handles are fully released by Windows
