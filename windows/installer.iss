@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.15"
+  #define MyAppVersion "1.2.0-beta.16"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -52,9 +52,10 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; NOTE: "skipifsilent" was removed on purpose. The updater always runs this
-; installer with /VERYSILENT, and skipifsilent unconditionally skips the
-; [Run] entry in silent mode -- that was why the app never relaunched after
-; an update. "runasoriginaluser" keeps the relaunched app running under the
-; normal user's token instead of inheriting the installer's admin elevation.
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall runasoriginaluser
+; IMPORTANT: Do NOT add "postinstall" flag here.
+; "postinstall" causes Inno Setup to show this entry only on the wizard finish
+; page, which is skipped entirely when running with /VERYSILENT. Without
+; "postinstall", the [Run] entry always executes after installation regardless
+; of silent mode. "runasoriginaluser" ensures the app launches under the
+; logged-in user's token, not the elevated installer token.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait runasoriginaluser

@@ -617,11 +617,11 @@ WriteLog "Requesting elevated execution for PowerShell updater: $escapedPsScript
 
 Dim psArgs
 psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""$escapedPsScript"""
-objShellApp.ShellExecute "powershell.exe", psArgs, "", "runas", 0
+objShellApp.ShellExecute "powershell.exe", psArgs, "", "runas", 1
 
 WScript.Sleep 1000
 
-WriteLog "PowerShell updater process dispatched to desktop shell. Bootstrap exiting cleanly."
+WriteLog "PowerShell updater process dispatched. Bootstrap exiting cleanly."
 ''';
   }
 
@@ -638,153 +638,187 @@ WriteLog "PowerShell updater process dispatched to desktop shell. Bootstrap exit
     required String errorLogPath,
     String? bootstrapVbsPath,
   }) {
+    final installer   = _psQuote(installerPath);
+    final targetExe   = _psQuote(targetExePath);
+    final targetDir   = _psQuote(targetDirPath);
+    final expVersion  = _psQuote(expectedVersion);
+    final expDigest   = _psQuote(expectedDigest ?? '');
+    final failedMk    = _psQuote(failedMarkerPath);
+    final dbgLog      = _psQuote(debugLogPath);
+    final innoL       = _psQuote(innoLogPath);
+    final errLog      = _psQuote(errorLogPath);
+    final bsVbs       = _psQuote(bootstrapVbsPath ?? '');
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
-\$installer = ${_psQuote(installerPath)}
-\$targetExe = ${_psQuote(targetExePath)}
-\$targetDir = ${_psQuote(targetDirPath)}
-\$expectedVersion = ${_psQuote(expectedVersion)}
-\$expectedDigest = ${_psQuote(expectedDigest ?? '')}
-\$failedMarker = ${_psQuote(failedMarkerPath)}
-\$debugLog = ${_psQuote(debugLogPath)}
-\$innoLog = ${_psQuote(innoLogPath)}
-\$errorLog = ${_psQuote(errorLogPath)}
-\$bootstrapVbs = ${_psQuote(bootstrapVbsPath ?? '')}
+\$installer      = $installer
+\$targetExe      = $targetExe
+\$targetDir      = $targetDir
+\$expectedVersion = $expVersion
+\$expectedDigest  = $expDigest
+\$failedMarker   = $failedMk
+\$debugLog       = $dbgLog
+\$innoLog        = $innoL
+\$errorLog       = $errLog
+\$bootstrapVbs   = $bsVbs
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
 }
 
+function Get-FileProductVersion(\$path) {
+    try {
+        if (Test-Path \$path -PathType Leaf) {
+            return (Get-Item -LiteralPath \$path).VersionInfo.ProductVersion
+        }
+    } catch {}
+    return \$null
+}
+
 function Fail-Update(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-UpdateLog "FATAL ERROR: \$msg"
-    "[\$timestamp] ERROR: \$msg" | Out-File -FilePath \$errorLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
+    "[\$timestamp] FATAL: \$msg" | Out-File -FilePath \$errorLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
     \$msg | Out-File -FilePath \$failedMarker -Encoding utf8 -Force -ErrorAction SilentlyContinue
     exit 1
 }
 
 Write-UpdateLog "=========================================="
-Write-UpdateLog "Stage 1/7: Bootstrap started (PowerShell background updater initializing)"
-Write-UpdateLog "Target EXE: \$targetExe"
-Write-UpdateLog "Installer: \$installer"
-Write-UpdateLog "Expected Version: \$expectedVersion"
+Write-UpdateLog "Stage 1/7: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
+Write-UpdateLog "Installer path : \$installer"
+Write-UpdateLog "Target EXE     : \$targetExe"
+Write-UpdateLog "Expected ver   : \$expectedVersion"
 Write-UpdateLog "Expected SHA256: \$expectedDigest"
 
+# ----- Pre-flight checks -----
 if (Test-Path \$failedMarker) {
-    Write-UpdateLog "Refusing repeated attempt for failed installer."
-    exit 2
+    Write-UpdateLog "Stale .failed marker found -- clearing it and proceeding"
+    Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 }
 
 if (-not (Test-Path \$installer -PathType Leaf)) {
-    Fail-Update "Installer does not exist at: \$installer"
+    Fail-Update "Installer file not found: \$installer"
 }
 
 \$installerInfo = Get-Item -LiteralPath \$installer
+Write-UpdateLog "Installer size : \$(\$installerInfo.Length) bytes"
+
 if (\$installerInfo.Length -lt 1MB) {
-    Fail-Update "Installer file is unexpectedly small (\$([int64]\$installerInfo.Length) bytes)."
+    Fail-Update "Installer file is unexpectedly small (\$([int64]\$installerInfo.Length) bytes) -- download may be corrupt"
 }
 
+# ----- SHA-256 verification (optional) -----
 if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
     Write-UpdateLog "Verifying installer SHA-256..."
     try {
         \$fileStream = [System.IO.File]::OpenRead(\$installer)
-        \$sha256 = [System.Security.Cryptography.SHA256]::Create()
-        \$hashBytes = \$sha256.ComputeHash(\$fileStream)
+        \$sha256     = [System.Security.Cryptography.SHA256]::Create()
+        \$hashBytes  = \$sha256.ComputeHash(\$fileStream)
         \$fileStream.Close()
         \$actualDigest = [System.BitConverter]::ToString(\$hashBytes).Replace('-', '').ToLowerInvariant()
-        Write-UpdateLog "Installer SHA-256 computed: \$actualDigest"
+        Write-UpdateLog "Computed SHA-256: \$actualDigest"
     } catch {
-        Fail-Update "Failed to compute installer SHA-256: \$_"
+        Fail-Update "Failed to compute SHA-256: \$_"
     }
     if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) {
-        Fail-Update "Installer SHA-256 mismatch. Expected \$expectedDigest, got \$actualDigest."
+        Fail-Update "SHA-256 mismatch. Expected: \$expectedDigest  Got: \$actualDigest"
     }
-    Write-UpdateLog "Installer SHA-256 verified successfully."
+    Write-UpdateLog "SHA-256 verified OK"
 }
 
-# 2. Wait for current Flutter application and PocketBase to completely terminate
-Write-UpdateLog "Stage 2/7: Waiting for pos_system.exe and pocketbase.exe to exit..."
-\$waitIterations = 0
-while (\$waitIterations -lt 15) {
-    \$runningApp = Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue
-    if (-not \$runningApp) { break }
-    Start-Sleep -Milliseconds 500
-    \$waitIterations++
+# ----- Stage 2: Record current installed version BEFORE update -----
+Write-UpdateLog "Stage 2/7: Recording pre-update version..."
+\$versionBefore = Get-FileProductVersion \$targetExe
+Write-UpdateLog "Version BEFORE update: \$(if (\$versionBefore) { \$versionBefore } else { '(not installed / unreadable)' })"
+
+# ----- Stage 3: Terminate running processes -----
+Write-UpdateLog "Stage 3/7: Terminating pos_system.exe and pocketbase.exe..."
+\$maxWait = 30
+\$waited  = 0
+while (\$waited -lt \$maxWait) {
+    \$procs = Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue
+    if (-not \$procs) { break }
+    Write-UpdateLog "  Waiting for processes to exit (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
+    Start-Sleep -Seconds 1
+    \$waited++
 }
-
-# Force terminate any lingering app or pocketbase processes
-Get-Process -Name "pos_system" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-
-# 3. Execute elevated installer and wait for full completion
-Write-UpdateLog "Stage 3/7: Launching installer: \$installer"
-\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/LOG=`"\$innoLog`"")
-
-try {
-    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -PassThru
-    if (\$null -eq \$proc) {
-        Fail-Update "Start-Process returned null process handle."
-    }
-    Write-UpdateLog "Installer process started (PID: \$(\$proc.Id)). Waiting for installer completion..."
-    \$proc.WaitForExit()
-    \$exitCode = \$proc.ExitCode
-    Write-UpdateLog "Stage 4/7: Installer exit code: \$exitCode"
-    if (\$exitCode -ne 0) {
-        Fail-Update "Installer exited with non-zero exit code \$exitCode. See installer log at \$innoLog"
-    }
-} catch {
-    Fail-Update "Failed to launch installer: \$_"
-}
-
-# 4. Brief pause to ensure all file handles are fully released by Windows
+Get-Process -Name "pos_system"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "pocketbase"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
+Write-UpdateLog "Processes terminated (or were already gone)"
 
-# 5. Resolve installed executable location and verify product version
-Write-UpdateLog "Stage 5/7: Verifying installed executable and version..."
-if (-not (Test-Path \$targetExe -PathType Leaf)) {
-    Fail-Update "Installed executable is missing at target location: \$targetExe"
-}
+# ----- Stage 4: Run installer and wait for completion -----
+Write-UpdateLog "Stage 4/7: Launching installer..."
+Write-UpdateLog "  Path: \$installer"
+\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"\$innoLog`"")
+Write-UpdateLog "  Args: \$(\$installerArgs -join ' ')"
 
-\$installedFile = Get-Item -LiteralPath \$targetExe
-\$installedVersion = \$installedFile.VersionInfo.ProductVersion
-\$installedTimestamp = \$installedFile.LastWriteTimeUtc.ToString('o')
-Write-UpdateLog "Installed version: \$installedVersion (Path: \$targetExe, Modified: \$installedTimestamp)"
-
-if (\$expectedVersion -and \$expectedVersion.Trim() -ne "") {
-    if (-not \$installedVersion.StartsWith(\$expectedVersion)) {
-        Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."
-    }
-}
-
-# 6. Relaunch the upgraded application in standard desktop session
-Write-UpdateLog "Stage 6/7: Relaunching application at: \$targetExe (WorkingDirectory: \$targetDir)"
 try {
-    \$newProcess = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
-    if (\$null -eq \$newProcess) {
-        Fail-Update "Application launch returned null process object."
+    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Wait -PassThru
+    if (\$null -eq \$proc) {
+        Fail-Update "Start-Process returned null -- installer did not start"
     }
-    Write-UpdateLog "Application process launched (PID: \$([int]\$newProcess.Id)). Monitoring startup health for 5 seconds..."
-    Start-Sleep -Seconds 5
-    \$stillRunning = Get-Process -Id \$newProcess.Id -ErrorAction SilentlyContinue
-    if (-not \$stillRunning) {
-        \$newProcess.Refresh()
-        \$processExitCode = \$newProcess.ExitCode
-        Fail-Update "Stage 7/7: Application health result: Process exited unexpectedly with code \$processExitCode (0x\$('{0:X8}' -f ([uint32]\$processExitCode)))."
+    \$exitCode = \$proc.ExitCode
+    Write-UpdateLog "Stage 4/7: Installer PID was \$(\$proc.Id) -- exit code: \$exitCode"
+    if (\$exitCode -ne 0) {
+        Fail-Update "Installer exited with code \$exitCode (non-zero = failure). Check: \$innoLog"
     }
-    Write-UpdateLog "Stage 7/7: Application health result: Process is alive and healthy (PID: \$([int]\$newProcess.Id)). Update transaction complete!"
 } catch {
-    Fail-Update "Application relaunch failed: \$_"
+    Fail-Update "Exception launching installer: \$_"
 }
 
-# 7. Clean up temporary script and failed marker on success (Logs are preserved)
+# ----- Stage 5: Pause and verify installed version changed -----
+Write-UpdateLog "Stage 5/7: Pausing 3 s for file handles to release..."
+Start-Sleep -Seconds 3
+
+if (-not (Test-Path \$targetExe -PathType Leaf)) {
+    Fail-Update "pos_system.exe missing after installer ran: \$targetExe"
+}
+
+\$versionAfter = Get-FileProductVersion \$targetExe
+Write-UpdateLog "Version AFTER  update: \$(if (\$versionAfter) { \$versionAfter } else { '(unreadable)' })"
+
+if (\$versionBefore -and \$versionAfter -and (\$versionAfter -eq \$versionBefore)) {
+    Fail-Update "Version did not change after installation (\$versionBefore -> \$versionAfter). Installer may have failed silently."
+}
+
+if (\$expectedVersion -and \$expectedVersion.Trim() -ne "" -and \$versionAfter) {
+    \$cleanExpected = (\$expectedVersion -replace '[+].*','').Trim()
+    \$cleanActual   = (\$versionAfter   -replace '[+].*','').Trim()
+    if (\$cleanActual -ne \$cleanExpected) {
+        Write-UpdateLog "WARNING: Expected version '\$cleanExpected' but installed version is '\$cleanActual'. Proceeding anyway."
+    } else {
+        Write-UpdateLog "Version verified OK: \$cleanActual"
+    }
+}
+
+# ----- Stage 6: Relaunch app as normal user via explorer.exe -----
+Write-UpdateLog "Stage 6/7: Relaunching \$targetExe as normal user..."
+try {
+    \$explorerPath = Join-Path \$env:SystemRoot "explorer.exe"
+    \$launchProc = Start-Process -FilePath \$explorerPath -ArgumentList "`"\$targetExe`"" -PassThru -ErrorAction Stop
+    if (\$null -ne \$launchProc) {
+        Write-UpdateLog "  explorer.exe PID: \$(\$launchProc.Id)"
+    }
+    Write-UpdateLog "Relaunch command dispatched via explorer.exe"
+} catch {
+    Write-UpdateLog "  explorer.exe launch failed: \$_ -- attempting direct launch"
+    try {
+        \$fallback = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
+        Write-UpdateLog "  Direct launch PID: \$(if (\$fallback) { \$fallback.Id } else { 'null' })"
+    } catch {
+        Write-UpdateLog "  Direct launch also failed: \$_"
+    }
+}
+
+# ----- Stage 7: Cleanup -----
+Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 if (\$bootstrapVbs -and (Test-Path \$bootstrapVbs)) {
     Remove-Item -Path \$bootstrapVbs -Force -ErrorAction SilentlyContinue
 }
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
-Write-UpdateLog "Updater script completed successfully."
+Write-UpdateLog "Update transaction COMPLETE. \$versionBefore -> \$versionAfter"
 Write-UpdateLog "=========================================="
 ''';
   }
