@@ -470,6 +470,7 @@ class UpdateService {
     }
 
     final partialFile = File('${targetFile.path}.partial');
+    final failedMarker = File('${targetFile.path}.failed');
     if (await targetFile.exists()) {
       try {
         await targetFile.delete();
@@ -478,6 +479,11 @@ class UpdateService {
     if (await partialFile.exists()) {
       try {
         await partialFile.delete();
+      } catch (_) {}
+    }
+    if (await failedMarker.exists()) {
+      try {
+        await failedMarker.delete();
       } catch (_) {}
     }
 
@@ -814,6 +820,13 @@ Write-UpdateLog "=========================================="
             expectedVersion ?? _versionFromInstallerName(installerFile);
 
         final failedMarkerPath = '${installerFile.path}.failed';
+        try {
+          final fm = File(failedMarkerPath);
+          if (fm.existsSync()) {
+            fm.deleteSync();
+          }
+        } catch (_) {}
+
         final updateDir = Directory(
           p.join(Directory.systemTemp.path, 'ShopFlow_Update'),
         );
