@@ -592,8 +592,8 @@ class UpdateService {
     final escapedPsScript = psScriptPath.replaceAll('"', '""');
     final escapedDebugLog = debugLogPath.replaceAll('"', '""');
     return '''Option Explicit
-Dim objShell, fso, logFile
-Set objShell = CreateObject("WScript.Shell")
+Dim objShellApp, fso, logFile
+Set objShellApp = CreateObject("Shell.Application")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
 Sub WriteLog(msg)
@@ -607,13 +607,13 @@ Sub WriteLog(msg)
 End Sub
 
 WriteLog "Stage 1/7: Bootstrap script started"
-WriteLog "Launching PowerShell updater completely detached: $escapedPsScript"
+WriteLog "Dispatching PowerShell updater to Windows Explorer Desktop Shell: $escapedPsScript"
 
-Dim psCmd
-psCmd = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPsScript"""
-objShell.Run psCmd, 0, False
+Dim psArgs
+psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPsScript"""
+objShellApp.ShellExecute "powershell.exe", psArgs, "", "", 0
 
-WriteLog "PowerShell updater process spawned via Windows Shell. Bootstrap exiting cleanly."
+WriteLog "PowerShell updater process dispatched to desktop shell. Bootstrap exiting cleanly."
 ''';
   }
 
