@@ -289,19 +289,17 @@ class UpdateService {
 
     try {
       final uri = Uri.parse(AppConfig.githubLatestReleaseUrl);
-      final response = await _httpClient
-          .get(
-            uri,
-            headers: {
-              'Accept': 'application/vnd.github.v3+json',
-              'User-Agent': 'ShopFlow-POS-Desktop',
-            },
-          )
-          .timeout(timeout);
+      final response = await _httpClient.get(
+        uri,
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'ShopFlow-POS-Desktop',
+        },
+      ).timeout(timeout);
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes))
-            as Map<String, dynamic>;
+        final data =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         final release = AppRelease.fromJson(data);
         final remoteVer = AppVersion.parse(release.version);
 
@@ -321,19 +319,17 @@ class UpdateService {
       } else if (response.statusCode == 404) {
         // Fallback: try fetching the list of all releases in case /latest is not configured
         final releasesListUri = Uri.parse(AppConfig.githubReleasesUrl);
-        final listResponse = await _httpClient
-            .get(
-              releasesListUri,
-              headers: {
-                'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': 'ShopFlow-POS-Desktop',
-              },
-            )
-            .timeout(timeout);
+        final listResponse = await _httpClient.get(
+          releasesListUri,
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'ShopFlow-POS-Desktop',
+          },
+        ).timeout(timeout);
 
         if (listResponse.statusCode == 200) {
-          final listData = jsonDecode(utf8.decode(listResponse.bodyBytes))
-              as List<dynamic>;
+          final listData =
+              jsonDecode(utf8.decode(listResponse.bodyBytes)) as List<dynamic>;
           if (listData.isNotEmpty) {
             final latestJson = listData.first as Map<String, dynamic>;
             final release = AppRelease.fromJson(latestJson);
@@ -457,7 +453,9 @@ class UpdateService {
           await sink.close();
           client.close();
           if (await targetFile.exists()) {
-            await targetFile.delete();
+            try {
+              await targetFile.delete();
+            } catch (_) {}
           }
           yield UpdateDownloadProgress(
             receivedBytes: receivedBytes,
@@ -471,9 +469,13 @@ class UpdateService {
         sink.add(chunk);
         receivedBytes += chunk.length;
 
-        final fraction = totalBytes > 0
-            ? (receivedBytes / totalBytes).clamp(0.0, 1.0)
-            : 0.0;
+        final double fraction;
+        if (totalBytes > 0) {
+          final raw = receivedBytes / totalBytes;
+          fraction = raw.isNaN || raw.isInfinite ? 0.0 : raw.clamp(0.0, 1.0);
+        } else {
+          fraction = 0.0;
+        }
 
         yield UpdateDownloadProgress(
           receivedBytes: receivedBytes,
@@ -487,6 +489,11 @@ class UpdateService {
       await sink.close();
       client.close();
 
+      if (totalBytes > 0 && receivedBytes < totalBytes) {
+        throw Exception(
+            'Incomplete download ($receivedBytes of $totalBytes bytes received).');
+      }
+
       yield UpdateDownloadProgress(
         receivedBytes: receivedBytes,
         totalBytes: totalBytes > 0 ? totalBytes : receivedBytes,
@@ -495,7 +502,9 @@ class UpdateService {
         isCompleted: true,
       );
     } catch (e) {
-      await sink.close();
+      try {
+        await sink.close();
+      } catch (_) {}
       client.close();
       if (await targetFile.exists()) {
         try {
@@ -519,117 +528,117 @@ class UpdateService {
           await PocketBaseServerManager.stop();
         } catch (_) {}
 
-        final installerPath =
-            p.normalize(installerFile.absolute.path).replaceAll(r'\', r'\\');
-        final appExePath = p
-            .normalize(Platform.resolvedExecutable)
-            .replaceAll(r'\', r'\\');
-        final appDir = p
-            .normalize(File(Platform.resolvedExecutable).parent.path)
-            .replaceAll(r'\', r'\\');
+        final installerPath = p.normalize(installerFile.absolute.path);
+        final appExePath = p.normalize(Platform.resolvedExecutable);
+        final appDir =
+            p.normalize(File(Platform.resolvedExecutable).parent.path);
 
-        // 2. Generate a dedicated background VBScript relauncher script in temp directory
+        // 2. Generate a dedicated background PowerShell relauncher script in temp directory
         final tempDir = Directory.systemTemp;
-        final vbsScriptFile = File(p.join(
+        final psScriptFile = File(p.join(
           tempDir.path,
           'ShopFlow_Update',
-          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.vbs',
+          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.ps1',
         ));
 
-        if (!vbsScriptFile.parent.existsSync()) {
-          vbsScriptFile.parent.createSync(recursive: true);
+        if (!psScriptFile.parent.existsSync()) {
+          psScriptFile.parent.createSync(recursive: true);
         }
 
-        final scriptContent = '''Set WshShell = CreateObject("WScript.Shell")
-Set fso = CreateObject("Scripting.FileSystemObject")
+        final scriptContent = '''# ShopFlow POS Automated Background Updater
+\$ErrorActionPreference = 'Continue'
+\$tempDir = [System.IO.Path]::GetTempPath()
+\$debugLog = Join-Path \$tempDir "ShopFlow_Update_debug.log"
 
-tempDir = WshShell.ExpandEnvironmentStrings("%TEMP%")
-debugLog = tempDir & "\\ShopFlow_Update_debug.log"
+function Write-UpdateLog(\$msg) {
+    \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8
+}
 
-Set logFileStream = fso.OpenTextFile(debugLog, 8, True)
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Started updater script"
+Write-UpdateLog "=========================================="
+Write-UpdateLog "Starting PowerShell background updater script"
+Write-UpdateLog "Caller EXE: $appExePath"
+Write-UpdateLog "Installer: $installerPath"
 
-' 1. Wait 2 seconds for calling app to exit
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Sleeping 2s for app exit..."
-WScript.Sleep 2000
+# 1. Wait for current Flutter application and PocketBase to completely terminate
+Write-UpdateLog "Waiting for app process to exit..."
+Start-Sleep -Seconds 2
+Get-Process -Name "pos_system", "pocketbase" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
 
-installerPath = "$installerPath"
-appExe = "$appExePath"
-appDir = "$appDir"
-innoLog = tempDir & "\\ShopFlow_Update.log"
+\$installer = "$installerPath"
+\$innoLog = Join-Path \$tempDir "ShopFlow_Update.log"
 
-' Terminate lingering processes
-On Error Resume Next
-WshShell.Run "taskkill /F /IM pos_system.exe /IM pocketbase.exe", 0, True
-On Error GoTo 0
+# 2. Execute elevated installer and wait for full completion
+Write-UpdateLog "Launching elevated Inno Setup installer..."
+\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/FORCECLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS=0", "/LOG=`"\$innoLog`"")
 
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Requesting elevated install: " & installerPath
+try {
+    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru -Wait
+    \$exitCode = \$proc.ExitCode
+    Write-UpdateLog "Installer process exited with code: \$exitCode"
+} catch {
+    Write-UpdateLog "ERROR running installer elevated: \$_"
+    \$exitCode = -1
+}
 
-installerArgs = "/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /RESTARTAPPLICATIONS=0 /LOG=""" & innoLog & """"
+# 3. Wait for any Inno Setup temporary unpacker child processes (is-*.tmp) to finish
+Write-UpdateLog "Checking for child Inno Setup worker processes..."
+\$waited = 0
+while (\$waited -lt 180) {
+    \$innoChild = Get-Process | Where-Object { \$_.ProcessName -like "is-*" -or \$_.Path -like "*\\is-*.tmp\\*" } -ErrorAction SilentlyContinue
+    if (-not \$innoChild) { break }
+    Start-Sleep -Seconds 1
+    \$waited++
+}
+Write-UpdateLog "Inno Setup worker processes finished (waited \$waited seconds)."
 
-Set objShellApp = CreateObject("Shell.Application")
-objShellApp.ShellExecute installerPath, installerArgs, "", "runas", 0
+# 4. Resolve installed executable location
+\$targetExe = "$appExePath"
+\$targetDir = "$appDir"
 
-' ShellExecute with runas is asynchronous, so poll WMI until the installer process finishes
-installerFileName = fso.GetFileName(installerPath)
-Set objWMI = GetObject("winmgmts:\\\\.\\root\\cimv2")
+if (Test-Path "C:\\Program Files\\ShopFlow POS\\pos_system.exe") {
+    \$targetExe = "C:\\Program Files\\ShopFlow POS\\pos_system.exe"
+    \$targetDir = "C:\\Program Files\\ShopFlow POS"
+} elseif (Test-Path "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe") {
+    \$targetExe = "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe"
+    \$targetDir = "C:\\Program Files (x86)\\ShopFlow POS"
+} elseif (Test-Path "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe") {
+    \$targetExe = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS\\pos_system.exe"
+    \$targetDir = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS"
+}
 
-isRunning = True
-waitedSeconds = 0
-Do While isRunning
-  WScript.Sleep 1000
-  waitedSeconds = waitedSeconds + 1
-  isRunning = False
+# 5. Relaunch the upgraded application in standard desktop session
+Write-UpdateLog "Relaunching application at: \$targetExe"
+if (Test-Path \$targetExe) {
+    Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir
+    Write-UpdateLog "Application successfully relaunched."
+} else {
+    Write-UpdateLog "ERROR: Could not find target application at \$targetExe"
+}
 
-  Set colProcesses = objWMI.ExecQuery("SELECT * FROM Win32_Process WHERE Name = '" & installerFileName & "'")
-  For Each objProcess In colProcesses
-    isRunning = True
-  Next
+Write-UpdateLog "Updater script execution complete."
+Write-UpdateLog "=========================================="
 
-  ' Safety timeout: 5 minutes
-  If waitedSeconds > 300 Then
-    logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] WARNING: install wait timed out after 5 minutes."
-    isRunning = False
-  End If
-Loop
-
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Installer process finished (waited " & waitedSeconds & "s)."
-
-' Locate the installed executable
-targetExe = appExe
-targetDir = appDir
-
-If fso.FileExists("C:\\Program Files\\ShopFlow POS\\pos_system.exe") Then
-    targetExe = "C:\\Program Files\\ShopFlow POS\\pos_system.exe"
-    targetDir = "C:\\Program Files\\ShopFlow POS"
-ElseIf fso.FileExists("C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe") Then
-    targetExe = "C:\\Program Files (x86)\\ShopFlow POS\\pos_system.exe"
-    targetDir = "C:\\Program Files (x86)\\ShopFlow POS"
-ElseIf fso.FileExists(WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")) Then
-    targetExe = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS\\pos_system.exe")
-    targetDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\\Programs\\ShopFlow POS")
-End If
-
-' 3. Relaunch the upgraded application in standard desktop session
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] Relaunching app: " & targetExe & " in " & targetDir
-WshShell.CurrentDirectory = targetDir
-WshShell.Run """" & targetExe & """", 1, False
-
-logFileStream.WriteLine "[" & Now & "] [VBS-UPDATER] App relaunched successfully. Done."
-logFileStream.Close
-
-' 4. Clean up script
-On Error Resume Next
-fso.DeleteFile WScript.ScriptFullName, True
-On Error GoTo 0
+# 6. Clean up the script file
+Start-Sleep -Seconds 3
+Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''';
 
-        await vbsScriptFile.writeAsString(scriptContent);
+        await psScriptFile.writeAsString(scriptContent);
 
-        // 3. Launch WScript detached to execute the update script silently
+        // 3. Launch PowerShell detached to execute the update script silently
         await Process.start(
-          'wscript.exe',
-          [vbsScriptFile.path],
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-WindowStyle',
+            'Hidden',
+            '-File',
+            psScriptFile.path,
+          ],
           mode: ProcessStartMode.detached,
         );
 

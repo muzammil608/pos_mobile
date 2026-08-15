@@ -2,7 +2,7 @@
 ; Inno Setup Compiler Script
 
 #define MyAppName "ShopFlow POS"
-#define MyAppVersion "1.1.7"
+#define MyAppVersion "1.1.8"
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
 #define MyAppIcon "runner\resources\app_icon.ico"
@@ -31,6 +31,7 @@ OutputBaseFilename=ShopFlow_POS_Setup_v{#MyAppVersion}
 ; Automatically close running app/backend during updates
 CloseApplications=yes
 CloseApplicationsFilter=*pos_system.exe,*pocketbase.exe
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
