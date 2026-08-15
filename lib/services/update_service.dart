@@ -616,10 +616,10 @@ WriteLog "Stage 1/7: Bootstrap script started"
 WriteLog "Dispatching PowerShell updater to Windows Explorer Desktop Shell: $escapedPsScript"
 
 Dim psArgs
-psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""$escapedPsScript"""
-objShellApp.ShellExecute "powershell.exe", psArgs, "", "", 0
+psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""$escapedPsScript"""
+objShellApp.ShellExecute "powershell.exe", psArgs, "", "open", 0
 
-WScript.Sleep 500
+WScript.Sleep 1000
 
 WriteLog "PowerShell updater process dispatched to desktop shell. Bootstrap exiting cleanly."
 ''';
