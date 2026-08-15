@@ -1,9 +1,28 @@
+enum UpdateChannel {
+  stable,
+  beta,
+}
+
+extension UpdateChannelExtension on UpdateChannel {
+  String get displayName {
+    switch (this) {
+      case UpdateChannel.stable:
+        return 'Stable';
+      case UpdateChannel.beta:
+        return 'Beta';
+    }
+  }
+}
+
 class AppConfig {
   static const String appName = 'ShopFlow POS';
   
   /// Application version string (synchronize with pubspec.yaml and windows/installer.iss)
-  static const String currentVersion = '1.2.0-beta.2';
-  static const String buildSignature = '1.2.0-beta.2+64';
+  static const String currentVersion = '1.2.0-beta.3';
+  static const String buildSignature = '1.2.0-beta.3+65';
+
+  /// Active update channel (defaults to beta channel for development builds)
+  static UpdateChannel defaultChannel = UpdateChannel.beta;
 
   /// GitHub repository information for update checks
   static const String githubOwner = 'muzammil608';

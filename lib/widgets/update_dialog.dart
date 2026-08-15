@@ -11,17 +11,20 @@ import '../services/update_service.dart';
 class UpdateDialog extends StatefulWidget {
   final AppRelease release;
   final String currentVersion;
+  final UpdateChannel? channel;
 
   const UpdateDialog({
     super.key,
     required this.release,
     required this.currentVersion,
+    this.channel,
   });
 
   static Future<void> show(
     BuildContext context, {
     required AppRelease release,
     String? currentVersion,
+    UpdateChannel? channel,
   }) {
     return showDialog<void>(
       context: context,
@@ -29,6 +32,7 @@ class UpdateDialog extends StatefulWidget {
       builder: (dialogCtx) => UpdateDialog(
         release: release,
         currentVersion: currentVersion ?? AppConfig.currentVersion,
+        channel: channel ?? AppConfig.defaultChannel,
       ),
     );
   }
@@ -522,17 +526,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       'v${widget.currentVersion}',
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: NovaColors.textSecondary,
                       ),
                     ),
-                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
@@ -586,17 +592,19 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       'v${widget.release.version}',
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w900,
                         color: NovaColors.violet,
                       ),
                     ),
-                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
@@ -630,23 +638,25 @@ class _UpdateDialogState extends State<UpdateDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Metadata chips (Date, Size, View on GitHub)
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            if (release.formattedPublishedDate.isNotEmpty) ...[
+            _buildMetaChip(
+              icon: Icons.alt_route_rounded,
+              label: widget.release.isPrerelease ? 'Beta Channel' : 'Stable Channel',
+            ),
+            if (release.formattedPublishedDate.isNotEmpty)
               _buildMetaChip(
                 icon: Icons.calendar_today_rounded,
                 label: release.formattedPublishedDate,
               ),
-              const SizedBox(width: 8),
-            ],
-            if (release.formattedSize.isNotEmpty) ...[
+            if (release.formattedSize.isNotEmpty)
               _buildMetaChip(
                 icon: Icons.folder_zip_rounded,
                 label: release.formattedSize,
               ),
-              const SizedBox(width: 8),
-            ],
-            const Spacer(),
             InkWell(
               borderRadius: BorderRadius.circular(6),
               onTap: _openReleaseUrl,

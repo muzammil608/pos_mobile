@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'services/pocketbase/pocketbase_client.dart';
 import 'services/pocketbase/pocketbase_server_manager.dart';
+import 'services/update_service.dart';
 import 'package:pos_system/core/keyboard/pos_keyboard_system.dart';
 
 import 'providers/auth_provider.dart';
@@ -55,13 +56,34 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
+      AutoUpdateManager.instance.stopPolling();
       PocketBaseServerManager.stop();
     }
   }
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    // Start background update polling (initial check after short startup delay, then every 5 minutes)
+    if (!kIsWeb && Platform.isWindows) {
+      AutoUpdateManager.instance.startPolling();
+    }
+  }
+
+  @override
+  void dispose() {
+    AutoUpdateManager.instance.stopPolling();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +106,7 @@ class MyApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
+        navigatorKey: AutoUpdateManager.navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: const AppEntry(),

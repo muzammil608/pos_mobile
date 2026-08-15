@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../core/constants/app_config.dart';
 import '../core/utils/clickable_cursor.dart';
 import '../services/update_service.dart';
-import 'update_dialog.dart';
 
 class AppUpdateButton extends StatefulWidget {
   final bool compact;
@@ -48,152 +47,8 @@ class _AppUpdateButtonState extends State<AppUpdateButton>
     _animController.repeat();
 
     try {
-      final result = await UpdateService.checkForUpdates();
-
-      if (!mounted) return;
-
-      _animController.stop();
-      _animController.reset();
-      setState(() => _isChecking = false);
-
-      if (result.isUpdateAvailable && result.release != null) {
-        if (mounted) {
-          await UpdateDialog.show(
-            context,
-            release: result.release!,
-            currentVersion: result.currentVersion,
-          );
-        }
-      } else if (result.isUpToDate) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              backgroundColor: const Color(0xFF1E293B),
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(
-                  color: Color(0xFF10B981),
-                  width: 1.2,
-                ),
-              ),
-              duration: const Duration(seconds: 3),
-              content: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.check_circle_rounded,
-                      color: Color(0xFF10B981),
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'ShopFlow is up to date',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          'Current version v${result.currentVersion} is the latest.',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              backgroundColor: const Color(0xFF1E293B),
-              margin: const EdgeInsets.all(16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(
-                  color: Color(0xFFEF4444),
-                  width: 1.2,
-                ),
-              ),
-              duration: const Duration(seconds: 4),
-              content: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEF4444).withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.error_outline_rounded,
-                      color: Color(0xFFEF4444),
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Update Check Failed',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          result.errorMessage ??
-                              'Unable to reach update server.',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-      }
+      await AutoUpdateManager.instance.performManualCheck(context);
     } catch (e) {
-      if (!mounted) return;
-      _animController.stop();
-      _animController.reset();
-      setState(() => _isChecking = false);
-
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -238,6 +93,12 @@ class _AppUpdateButtonState extends State<AppUpdateButton>
             ),
           ),
         );
+      }
+    } finally {
+      if (mounted) {
+        _animController.stop();
+        _animController.reset();
+        setState(() => _isChecking = false);
       }
     }
   }

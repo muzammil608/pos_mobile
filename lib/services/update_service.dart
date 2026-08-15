@@ -3,11 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants/app_config.dart';
+import '../widgets/update_dialog.dart';
 import 'pocketbase/pocketbase_server_manager.dart';
 
 enum UpdateStatus {
@@ -28,6 +30,7 @@ class AppRelease {
   final int? assetSize;
   final String? assetDigest;
   final bool isPrerelease;
+  final bool isDraft;
 
   const AppRelease({
     required this.version,
@@ -41,7 +44,13 @@ class AppRelease {
     this.assetSize,
     this.assetDigest,
     this.isPrerelease = false,
+    this.isDraft = false,
   });
+
+  static String expectedInstallerFileName(String version) {
+    final cleanVer = version.trim().replaceAll(RegExp(r'^[vV]'), '');
+    return 'ShopFlow_POS_Setup_v$cleanVer.exe';
+  }
 
   String get formattedPublishedDate {
     if (publishedAt == null) return '';
@@ -78,7 +87,7 @@ class AppRelease {
     final tagName = json['tag_name']?.toString() ?? '';
     final rawVersion = tagName.replaceAll(RegExp(r'^[vV]'), '');
 
-    // Parse assets to find the most suitable installer or bundle
+    // Parse assets to find the exact version-matching Windows installer .exe
     String? downloadUrl;
     String? assetName;
     int? assetSize;
@@ -87,17 +96,19 @@ class AppRelease {
     final assets = json['assets'] as List<dynamic>?;
     if (assets != null && assets.isNotEmpty) {
       dynamic match;
-      final expectedInstaller = RegExp(
-        r'(^|[^0-9])v?' + RegExp.escape(rawVersion) + r'([^0-9]|$)',
+      final vEscaped = RegExp.escape(rawVersion);
+      // Strictly match installer filenames that contain the exact version string
+      // e.g. ShopFlow_POS_Setup_v1.2.0-beta.2.exe or ShopFlow_POS_Setup_1.2.0-beta.2.exe
+      final exactInstallerPattern = RegExp(
+        r'(?:^|[\-_])v?' + vEscaped + r'(?:[\-_.]|\.exe$)',
         caseSensitive: false,
       );
 
-      // 1. Look for .exe on Windows
       for (final a in assets) {
         if (a is Map &&
             a['name'] != null &&
             a['name'].toString().toLowerCase().endsWith('.exe') &&
-            expectedInstaller.hasMatch(a['name'].toString())) {
+            exactInstallerPattern.hasMatch(a['name'].toString())) {
           match = a;
           break;
         }
@@ -135,6 +146,7 @@ class AppRelease {
       assetSize: assetSize,
       assetDigest: assetDigest,
       isPrerelease: json['prerelease'] == true,
+      isDraft: json['draft'] == true,
     );
   }
 }
@@ -189,19 +201,51 @@ class AppVersion implements Comparable<AppVersion> {
     );
   }
 
+  static int _compareIdentifiers(String a, String b) {
+    final aInt = int.tryParse(a);
+    final bInt = int.tryParse(b);
+
+    if (aInt != null && bInt != null) {
+      return aInt.compareTo(bInt);
+    }
+    if (aInt != null && bInt == null) {
+      // Numeric identifiers have lower precedence than non-numeric in SemVer 2.0
+      return -1;
+    }
+    if (aInt == null && bInt != null) {
+      return 1;
+    }
+    return a.compareTo(b);
+  }
+
+  static int _comparePreRelease(String preA, String preB) {
+    if (preA == preB) return 0;
+    // Release > Pre-release (e.g. 1.2.0 > 1.2.0-beta.1)
+    if (preA.isEmpty && preB.isNotEmpty) return 1;
+    if (preA.isNotEmpty && preB.isEmpty) return -1;
+    if (preA.isEmpty && preB.isEmpty) return 0;
+
+    final partsA = preA.split('.');
+    final partsB = preB.split('.');
+    final minLen =
+        partsA.length < partsB.length ? partsA.length : partsB.length;
+
+    for (int i = 0; i < minLen; i++) {
+      final cmp = _compareIdentifiers(partsA[i], partsB[i]);
+      if (cmp != 0) return cmp;
+    }
+
+    return partsA.length.compareTo(partsB.length);
+  }
+
   @override
   int compareTo(AppVersion other) {
     if (major != other.major) return major.compareTo(other.major);
     if (minor != other.minor) return minor.compareTo(other.minor);
     if (patch != other.patch) return patch.compareTo(other.patch);
 
-    // Release > Pre-release (e.g. 1.0.0 > 1.0.0-beta.1)
-    if (preRelease.isEmpty && other.preRelease.isNotEmpty) return 1;
-    if (preRelease.isNotEmpty && other.preRelease.isEmpty) return -1;
-    if (preRelease.isNotEmpty && other.preRelease.isNotEmpty) {
-      final cmp = preRelease.compareTo(other.preRelease);
-      if (cmp != 0) return cmp;
-    }
+    final preCmp = _comparePreRelease(preRelease, other.preRelease);
+    if (preCmp != 0) return preCmp;
 
     if (build != other.build) return build.compareTo(other.build);
     return 0;
@@ -219,12 +263,14 @@ class UpdateCheckResult {
   final UpdateStatus status;
   final AppRelease? release;
   final String currentVersion;
+  final UpdateChannel? channel;
   final String? errorMessage;
 
   const UpdateCheckResult({
     required this.status,
     this.release,
     required this.currentVersion,
+    this.channel,
     this.errorMessage,
   });
 
@@ -276,16 +322,22 @@ class UpdateService {
 
   static final http.Client _httpClient = http.Client();
 
-  /// Checks GitHub releases API for latest release and compares with [AppConfig.currentVersion].
+  /// Checks GitHub releases API for latest valid release on the specified [channel]
+  /// and compares with [currentVersionOverride] or [AppConfig.currentVersion].
   static Future<UpdateCheckResult> checkForUpdates({
+    UpdateChannel? channel,
+    String? currentVersionOverride,
     Duration timeout = const Duration(seconds: 12),
+    http.Client? client,
   }) async {
-    final currentVerStr = AppConfig.currentVersion;
+    final targetChannel = channel ?? AppConfig.defaultChannel;
+    final currentVerStr = currentVersionOverride ?? AppConfig.currentVersion;
     final currentVer = AppVersion.parse(currentVerStr);
+    final httpClient = client ?? _httpClient;
 
     try {
-      final uri = Uri.parse(AppConfig.githubLatestReleaseUrl);
-      final response = await _httpClient.get(
+      final uri = Uri.parse(AppConfig.githubReleasesUrl);
+      final response = await httpClient.get(
         uri,
         headers: {
           'Accept': 'application/vnd.github.v3+json',
@@ -294,66 +346,74 @@ class UpdateService {
       ).timeout(timeout);
 
       if (response.statusCode == 200) {
-        final data =
-            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final release = AppRelease.fromJson(data);
-        final remoteVer = AppVersion.parse(release.version);
+        final listData =
+            jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
 
-        if (remoteVer.isGreaterThan(currentVer)) {
+        final candidateReleases = <AppRelease>[];
+        for (final item in listData) {
+          if (item is! Map<String, dynamic>) continue;
+          final release = AppRelease.fromJson(item);
+          if (release.isDraft) continue; // Ignore drafts
+
+          // Channel filtering:
+          // Stable channel: ignore pre-releases
+          // Beta channel: accept both stable and pre-releases
+          if (targetChannel == UpdateChannel.stable && release.isPrerelease) {
+            continue;
+          }
+
+          candidateReleases.add(release);
+        }
+
+        if (candidateReleases.isEmpty) {
+          return UpdateCheckResult(
+            status: UpdateStatus.upToDate,
+            currentVersion: currentVerStr,
+            channel: targetChannel,
+          );
+        }
+
+        // Sort candidate releases by semantic version descending
+        candidateReleases.sort((a, b) {
+          final verA = AppVersion.parse(a.version);
+          final verB = AppVersion.parse(b.version);
+          return verB.compareTo(verA);
+        });
+
+        final newestRelease = candidateReleases.first;
+        final newestVer = AppVersion.parse(newestRelease.version);
+
+        if (newestVer.isGreaterThan(currentVer)) {
+          if (newestRelease.assetDownloadUrl == null ||
+              newestRelease.assetDownloadUrl!.isEmpty) {
+            return UpdateCheckResult(
+              status: UpdateStatus.error,
+              release: newestRelease,
+              currentVersion: currentVerStr,
+              channel: targetChannel,
+              errorMessage:
+                  'New release ${newestRelease.version} is available, but no matching Windows installer (${AppRelease.expectedInstallerFileName(newestRelease.version)}) was found.',
+            );
+          }
           return UpdateCheckResult(
             status: UpdateStatus.updateAvailable,
-            release: release,
+            release: newestRelease,
             currentVersion: currentVerStr,
+            channel: targetChannel,
           );
         } else {
           return UpdateCheckResult(
             status: UpdateStatus.upToDate,
-            release: release,
+            release: newestRelease,
             currentVersion: currentVerStr,
+            channel: targetChannel,
           );
         }
-      } else if (response.statusCode == 404) {
-        // Fallback: try fetching the list of all releases in case /latest is not configured
-        final releasesListUri = Uri.parse(AppConfig.githubReleasesUrl);
-        final listResponse = await _httpClient.get(
-          releasesListUri,
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'ShopFlow-POS-Desktop',
-          },
-        ).timeout(timeout);
-
-        if (listResponse.statusCode == 200) {
-          final listData =
-              jsonDecode(utf8.decode(listResponse.bodyBytes)) as List<dynamic>;
-          if (listData.isNotEmpty) {
-            final latestJson = listData.first as Map<String, dynamic>;
-            final release = AppRelease.fromJson(latestJson);
-            final remoteVer = AppVersion.parse(release.version);
-
-            if (remoteVer.isGreaterThan(currentVer)) {
-              return UpdateCheckResult(
-                status: UpdateStatus.updateAvailable,
-                release: release,
-                currentVersion: currentVerStr,
-              );
-            }
-          }
-          return UpdateCheckResult(
-            status: UpdateStatus.upToDate,
-            currentVersion: currentVerStr,
-          );
-        }
-
-        return UpdateCheckResult(
-          status: UpdateStatus.upToDate,
-          currentVersion: currentVerStr,
-          errorMessage: 'No release found on update server.',
-        );
       } else if (response.statusCode == 403) {
         return UpdateCheckResult(
           status: UpdateStatus.error,
           currentVersion: currentVerStr,
+          channel: targetChannel,
           errorMessage:
               'GitHub API rate limit exceeded. Please try again in a few moments.',
         );
@@ -361,6 +421,7 @@ class UpdateService {
         return UpdateCheckResult(
           status: UpdateStatus.error,
           currentVersion: currentVerStr,
+          channel: targetChannel,
           errorMessage:
               'Server returned code ${response.statusCode}: ${response.reasonPhrase}',
         );
@@ -369,6 +430,7 @@ class UpdateService {
       return UpdateCheckResult(
         status: UpdateStatus.error,
         currentVersion: currentVerStr,
+        channel: targetChannel,
         errorMessage:
             'No internet connection. Please check your network and try again.',
       );
@@ -376,12 +438,14 @@ class UpdateService {
       return UpdateCheckResult(
         status: UpdateStatus.error,
         currentVersion: currentVerStr,
+        channel: targetChannel,
         errorMessage: 'Connection timed out while checking for updates.',
       );
     } catch (e) {
       return UpdateCheckResult(
         status: UpdateStatus.error,
         currentVersion: currentVerStr,
+        channel: targetChannel,
         errorMessage: 'Failed to check updates: $e',
       );
     }
@@ -739,4 +803,249 @@ Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
   }
 
   static String _psQuote(String value) => "'${value.replaceAll("'", "''")}'";
+}
+
+class AutoUpdateManager {
+  AutoUpdateManager._();
+  static final AutoUpdateManager instance = AutoUpdateManager._();
+
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
+  bool _isChecking = false;
+  bool get isChecking => _isChecking;
+
+  bool _isDialogOpen = false;
+  bool get isDialogOpen => _isDialogOpen;
+
+  String? _lastPromptedReleaseVersion;
+  String? get lastPromptedReleaseVersion => _lastPromptedReleaseVersion;
+
+  Timer? _pollTimer;
+  Timer? _initialCheckTimer;
+
+  void resetSessionPromptState() {
+    _lastPromptedReleaseVersion = null;
+    _isDialogOpen = false;
+    _isChecking = false;
+  }
+
+  void startPolling({
+    Duration interval = const Duration(minutes: 5),
+    Duration initialDelay = const Duration(seconds: 8),
+    http.Client? client,
+  }) {
+    stopPolling();
+
+    _initialCheckTimer = Timer(initialDelay, () {
+      checkForUpdatesInBackground(client: client);
+    });
+
+    _pollTimer = Timer.periodic(interval, (_) {
+      checkForUpdatesInBackground(client: client);
+    });
+  }
+
+  void stopPolling() {
+    _initialCheckTimer?.cancel();
+    _initialCheckTimer = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  Future<UpdateCheckResult?> checkForUpdatesInBackground({
+    http.Client? client,
+  }) async {
+    if (_isChecking) return null;
+
+    _isChecking = true;
+    try {
+      final result = await UpdateService.checkForUpdates(client: client);
+
+      if (result.isUpdateAvailable && result.release != null) {
+        final rel = result.release!;
+        if (rel.version != _lastPromptedReleaseVersion && !_isDialogOpen) {
+          final context = navigatorKey.currentContext;
+          if (context != null && context.mounted) {
+            _lastPromptedReleaseVersion = rel.version;
+            _isDialogOpen = true;
+            try {
+              await UpdateDialog.show(
+                context,
+                release: rel,
+                currentVersion: result.currentVersion,
+                channel: result.channel,
+              );
+            } finally {
+              _isDialogOpen = false;
+            }
+          }
+        }
+      }
+      return result;
+    } finally {
+      _isChecking = false;
+    }
+  }
+
+  Future<UpdateCheckResult> performManualCheck(
+    BuildContext context, {
+    http.Client? client,
+  }) async {
+    if (_isChecking) {
+      return UpdateCheckResult(
+        status: UpdateStatus.error,
+        currentVersion: AppConfig.currentVersion,
+        errorMessage: 'An update check is already in progress.',
+      );
+    }
+
+    _isChecking = true;
+    try {
+      final result = await UpdateService.checkForUpdates(client: client);
+
+      if (!context.mounted) return result;
+
+      if (result.isUpdateAvailable && result.release != null) {
+        if (!_isDialogOpen) {
+          _lastPromptedReleaseVersion = result.release!.version;
+          _isDialogOpen = true;
+          try {
+            await UpdateDialog.show(
+              context,
+              release: result.release!,
+              currentVersion: result.currentVersion,
+              channel: result.channel,
+            );
+          } finally {
+            _isDialogOpen = false;
+          }
+        }
+      } else if (result.isUpToDate) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF1E293B),
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(
+                color: Color(0xFF10B981),
+                width: 1.2,
+              ),
+            ),
+            duration: const Duration(seconds: 3),
+            content: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFF10B981),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'ShopFlow POS is up to date',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Current version v${result.currentVersion} (${result.channel?.displayName ?? "Beta"} channel) is the latest.',
+                        style: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      } else if (result.hasError) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: const Color(0xFF1E293B),
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(
+                color: Color(0xFFEF4444),
+                width: 1.2,
+              ),
+            ),
+            duration: const Duration(seconds: 4),
+            content: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.error_outline_rounded,
+                    color: Color(0xFFEF4444),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Update Check Failed',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        result.errorMessage ??
+                            'Unable to connect to update server.',
+                        style: const TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 12,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      return result;
+    } finally {
+      _isChecking = false;
+    }
+  }
 }
