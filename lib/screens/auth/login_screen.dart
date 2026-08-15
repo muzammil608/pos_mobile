@@ -109,6 +109,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final FocusNode _emailFocusNode = FocusNode();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -117,7 +118,18 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _passwordError;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _emailFocusNode.requestFocus();
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _emailFocusNode.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -201,7 +213,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final bool isEmptyError = _emailError == 'Please fill out required field!';
     return TextField(
       controller: _emailController,
-      autofocus: false,
+      focusNode: _emailFocusNode,
+      autofocus: true,
       keyboardType: TextInputType.emailAddress,
       textInputAction: TextInputAction.next,
       autocorrect: false,
