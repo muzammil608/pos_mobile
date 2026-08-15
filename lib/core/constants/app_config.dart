@@ -2,8 +2,8 @@ class AppConfig {
   static const String appName = 'ShopFlow POS';
   
   /// Application version string (synchronize with pubspec.yaml and windows/installer.iss)
-  static const String currentVersion = '1.2.0-beta.1';
-  static const String buildSignature = '1.2.0-beta.1+63';
+  static const String currentVersion = '1.2.0-beta.2';
+  static const String buildSignature = '1.2.0-beta.2+64';
 
   /// GitHub repository information for update checks
   static const String githubOwner = 'muzammil608';
