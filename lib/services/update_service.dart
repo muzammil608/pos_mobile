@@ -679,7 +679,16 @@ if (\$installerInfo.Length -lt 1MB) {
 
 if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
     Write-UpdateLog "Verifying installer SHA-256..."
-    \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    try {
+        \$fileStream = [System.IO.File]::OpenRead(\$installer)
+        \$sha256 = [System.Security.Cryptography.SHA256]::Create()
+        \$hashBytes = \$sha256.ComputeHash(\$fileStream)
+        \$fileStream.Close()
+        \$actualDigest = [System.BitConverter]::ToString(\$hashBytes).Replace('-', '').ToLowerInvariant()
+        Write-UpdateLog "Installer SHA-256 computed: \$actualDigest"
+    } catch {
+        Fail-Update "Failed to compute installer SHA-256: \$_"
+    }
     if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) {
         Fail-Update "Installer SHA-256 mismatch. Expected \$expectedDigest, got \$actualDigest."
     }
@@ -778,6 +787,8 @@ Write-UpdateLog "=========================================="
     File installerFile, {
     String? expectedVersion,
     String? expectedDigest,
+    String? targetExePathOverride,
+    String? targetDirPathOverride,
   }) async {
     if (!await installerFile.exists()) {
       return false;
@@ -790,9 +801,12 @@ Write-UpdateLog "=========================================="
         } catch (_) {}
 
         final installerPath = p.normalize(installerFile.absolute.path);
-        final appExePath = p.normalize(Platform.resolvedExecutable);
-        final appDir =
-            p.normalize(File(Platform.resolvedExecutable).parent.path);
+        final appExePath = targetExePathOverride != null
+            ? p.normalize(targetExePathOverride)
+            : p.normalize(Platform.resolvedExecutable);
+        final appDir = targetDirPathOverride != null
+            ? p.normalize(targetDirPathOverride)
+            : p.normalize(File(appExePath).parent.path);
 
         final version =
             expectedVersion ?? _versionFromInstallerName(installerFile);
