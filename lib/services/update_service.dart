@@ -734,15 +734,17 @@ Write-UpdateLog "=========================================="
 
   /// Starts a detached updater. The updater owns the rest of the transaction
   /// because this process must exit before an installed executable can change.
-  static Future<bool> relaunchAndInstall(File installerFile,
-      {String? expectedVersion, String? expectedDigest}) async {
+  static Future<bool> relaunchAndInstall(
+    File installerFile, {
+    String? expectedVersion,
+    String? expectedDigest,
+  }) async {
     if (!await installerFile.exists()) {
       return false;
     }
 
     try {
       if (!kIsWeb && Platform.isWindows) {
-        // 1. Stop local PocketBase server process if active to avoid file lock
         try {
           await PocketBaseServerManager.stop();
         } catch (_) {}
@@ -751,38 +753,60 @@ Write-UpdateLog "=========================================="
         final appExePath = p.normalize(Platform.resolvedExecutable);
         final appDir =
             p.normalize(File(Platform.resolvedExecutable).parent.path);
+
         final version =
             expectedVersion ?? _versionFromInstallerName(installerFile);
-        final failedMarkerPath = '${installerFile.path}.failed';
 
-        final tempDir = Directory.systemTemp;
-        final updateDir = Directory(p.join(tempDir.path, 'ShopFlow_Update'));
+        final failedMarkerPath = '${installerFile.path}.failed';
+        final updateDir = Directory(
+          p.join(Directory.systemTemp.path, 'ShopFlow_Update'),
+        );
+
         if (!updateDir.existsSync()) {
           updateDir.createSync(recursive: true);
         }
 
-        final debugLogPath = p.join(updateDir.path, 'ShopFlow_Update_debug.log');
-        final innoLogPath = p.join(updateDir.path, 'ShopFlow_Update.log');
-        final errorLogPath = p.join(updateDir.path, 'ShopFlow_Update_error.log');
-
-        final timestampStr = DateTime.now().toIso8601String();
-        final dartLogEntry = '''==========================================
-[$timestampStr] [DART-LAUNCHER] Initiate update transaction
-[$timestampStr] [DART-LAUNCHER] Installer: $installerPath
-[$timestampStr] [DART-LAUNCHER] TargetExe: $appExePath
-[$timestampStr] [DART-LAUNCHER] TargetDir: $appDir
-[$timestampStr] [DART-LAUNCHER] ExpectedVersion: $version
-[$timestampStr] [DART-LAUNCHER] ExpectedSHA256: ${expectedDigest ?? "None"}
-''';
-        try {
-          File(debugLogPath).writeAsStringSync(dartLogEntry, mode: FileMode.append, flush: true);
-        } catch (_) {}
-
-        // 2. Generate a dedicated background PowerShell relauncher script in temp directory
-        final psScriptFile = File(p.join(
+        final debugLogPath = p.join(
           updateDir.path,
-          'shopflow_updater_${DateTime.now().millisecondsSinceEpoch}.ps1',
-        ));
+          'ShopFlow_Update_debug.log',
+        );
+        final innoLogPath = p.join(
+          updateDir.path,
+          'ShopFlow_Update.log',
+        );
+        final errorLogPath = p.join(
+          updateDir.path,
+          'ShopFlow_Update_error.log',
+        );
+
+        final timestamp = DateTime.now().toIso8601String();
+
+        void writeLauncherLog(String message) {
+          try {
+            File(debugLogPath).writeAsStringSync(
+              '[$timestamp] [DART-LAUNCHER] $message\n',
+              mode: FileMode.append,
+              flush: true,
+            );
+          } catch (_) {}
+        }
+
+        writeLauncherLog('Initiate update transaction');
+        writeLauncherLog('Installer: $installerPath');
+        writeLauncherLog('TargetExe: $appExePath');
+        writeLauncherLog('TargetDir: $appDir');
+        writeLauncherLog('ExpectedVersion: $version');
+        writeLauncherLog(
+          'ExpectedSHA256: ${expectedDigest ?? "None"}',
+        );
+
+        final psScriptFile = File(
+          p.join(
+            updateDir.path,
+            'shopflow_updater_'
+            '${DateTime.now().millisecondsSinceEpoch}.ps1',
+          ),
+        );
 
         final scriptContent = generateUpdaterScriptContent(
           installerPath: installerPath,
@@ -796,29 +820,30 @@ Write-UpdateLog "=========================================="
           errorLogPath: errorLogPath,
         );
 
-        await psScriptFile.writeAsString(scriptContent);
+        await psScriptFile.writeAsString(
+          scriptContent,
+          flush: true,
+        );
 
-        try {
-          File(debugLogPath).writeAsStringSync(
-            '[$timestampStr] [DART-LAUNCHER] Script written: ${psScriptFile.path}\n',
-            mode: FileMode.append,
-            flush: true,
-          );
-        } catch (_) {}
+        writeLauncherLog('Script written: ${psScriptFile.path}');
 
-        // 3. Locate powershell.exe
-        const sysPowerShell = r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
-        final powershellExe = File(sysPowerShell).existsSync() ? sysPowerShell : 'powershell.exe';
+        const systemPowerShell =
+            r'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe';
 
-        // 4. Launch detached PowerShell via cmd.exe /c start "" /b to ensure valid console subsystem & background execution
-        final spawnedProcess = await Process.start(
-          'cmd.exe',
+        final powershellExe = File(systemPowerShell).existsSync()
+            ? systemPowerShell
+            : 'powershell.exe';
+
+        // Launch PowerShell directly.
+        // Do not use cmd.exe /c start because it returns the cmd.exe PID
+        // and does not prove that the updater script actually executed.
+        writeLauncherLog(
+          'Starting PowerShell directly: $powershellExe',
+        );
+
+        final updaterProcess = await Process.start(
+          powershellExe,
           [
-            '/c',
-            'start',
-            '""',
-            '/b',
-            powershellExe,
             '-NoLogo',
             '-NoProfile',
             '-NonInteractive',
@@ -831,26 +856,32 @@ Write-UpdateLog "=========================================="
           workingDirectory: updateDir.path,
         );
 
-        try {
-          File(debugLogPath).writeAsStringSync(
-            '[$timestampStr] [DART-LAUNCHER] Detached updater launched (PID: ${spawnedProcess.pid}). Exiting application.\n'
-            '==========================================\n',
-            mode: FileMode.append,
-            flush: true,
+        if (updaterProcess.pid <= 0) {
+          throw StateError(
+            'PowerShell updater returned an invalid process ID.',
           );
-        } catch (_) {}
+        }
 
-        // 5. Terminate current Flutter application process cleanly
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-        exit(0);
-      } else {
-        // For other platforms, launch file or URL
-        await launchUrl(
-          Uri.file(installerFile.path),
-          mode: LaunchMode.externalApplication,
+        writeLauncherLog(
+          'PowerShell updater launched successfully '
+          '(PID: ${updaterProcess.pid})',
         );
-        return true;
+
+        writeLauncherLog('Exiting application for update transaction');
+
+        await Future<void>.delayed(
+          const Duration(milliseconds: 300),
+        );
+
+        exit(0);
       }
+
+      await launchUrl(
+        Uri.file(installerFile.path),
+        mode: LaunchMode.externalApplication,
+      );
+
+      return true;
     } catch (e) {
       debugPrint('Error launching installer: $e');
       return false;
