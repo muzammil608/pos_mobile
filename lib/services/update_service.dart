@@ -586,7 +586,7 @@ try {
 Write-UpdateLog "Checking for child Inno Setup worker processes..."
 \$waited = 0
 while (\$waited -lt 180) {
-    \$innoChild = Get-Process | Where-Object { \$_.ProcessName -like "is-*" -or \$_.Path -like "*\\is-*.tmp\\*" } -ErrorAction SilentlyContinue
+    \$innoChild = Get-Process -Name "is-*" -ErrorAction SilentlyContinue
     if (-not \$innoChild) { break }
     Start-Sleep -Seconds 1
     \$waited++
@@ -608,11 +608,20 @@ if (Test-Path "C:\\Program Files\\ShopFlow POS\\pos_system.exe") {
     \$targetDir = "\$env:LOCALAPPDATA\\Programs\\ShopFlow POS"
 }
 
-# 5. Relaunch the upgraded application in standard desktop session
+# 5. Brief pause to ensure all file handles are fully released by Windows
+Start-Sleep -Milliseconds 1000
+
+# 6. Relaunch the upgraded application in standard desktop session
 Write-UpdateLog "Relaunching application at: \$targetExe"
 if (Test-Path \$targetExe) {
-    Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir
-    Write-UpdateLog "Application successfully relaunched."
+    try {
+        Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir
+        Write-UpdateLog "Application successfully relaunched via Start-Process."
+    } catch {
+        Write-UpdateLog "Start-Process failed: \$_ . Falling back to explorer.exe..."
+        Start-Process -FilePath "explorer.exe" -ArgumentList "`"\$targetExe`""
+        Write-UpdateLog "Application launched via Explorer fallback."
+    }
 } else {
     Write-UpdateLog "ERROR: Could not find target application at \$targetExe"
 }
@@ -620,7 +629,7 @@ if (Test-Path \$targetExe) {
 Write-UpdateLog "Updater script execution complete."
 Write-UpdateLog "=========================================="
 
-# 6. Clean up the script file
+# 7. Clean up the script file
 Start-Sleep -Seconds 3
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''';
