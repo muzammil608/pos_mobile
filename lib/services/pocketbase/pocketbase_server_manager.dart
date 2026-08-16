@@ -350,7 +350,8 @@ class PocketBaseServerManager {
     return exeName;
   }
 
-  /// Stop server process if spawned by this application instance.
+  /// Stop server process. On Windows desktop, cleans up the process handle
+  /// and runs a system-level force kill to ensure no orphaned pocketbase processes or locks remain.
   static Future<void> stop() async {
     final process = _spawnedProcess;
     final pid = _spawnedPid;
@@ -371,9 +372,18 @@ class PocketBaseServerManager {
           Process.killPid(pid);
         } catch (_) {}
       }
-
-      debugPrint('[PocketBaseServerManager] PocketBase process stopped.');
     }
+
+    // Windows fallback: Force-kill any lingering or orphaned pocketbase.exe processes
+    if (!kIsWeb && Platform.isWindows) {
+      try {
+        await Process.run('taskkill', ['/F', '/IM', 'pocketbase.exe', '/T']);
+      } catch (e) {
+        debugPrint('[PocketBaseServerManager] taskkill fallback error: $e');
+      }
+    }
+
+    debugPrint('[PocketBaseServerManager] PocketBase process stopped.');
   }
 }
 

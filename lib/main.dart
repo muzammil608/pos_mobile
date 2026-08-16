@@ -50,6 +50,79 @@ void main() async {
   if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
     unawaited(PosHotkeyRegistry.init());
   }
+
+  // FIX: nothing previously read back whether the last background update
+  // attempt failed -- update_runner.ps1 wrote a ".failed" marker + error log
+  // on failure, but the app never checked for it, so a failed silent update
+  // was invisible to the user. Runs after the first frame so it can safely
+  // show UI via AutoUpdateManager.navigatorKey.
+  if (!kIsWeb && Platform.isWindows) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final result = await UpdateService.checkForPreviousUpdateFailure();
+      if (result.failed) {
+        final context = AutoUpdateManager.navigatorKey.currentContext;
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xFF1E293B),
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+              ),
+              duration: const Duration(seconds: 6),
+              content: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.error_outline_rounded,
+                      color: Color(0xFFEF4444),
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Last update attempt failed',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          result.message ??
+                              'The last background update did not complete.',
+                          style: const TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 12,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+      }
+    });
+  }
 }
 
 class _AppLifecycleObserver extends WidgetsBindingObserver {

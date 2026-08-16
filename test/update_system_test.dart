@@ -37,7 +37,9 @@ void main() {
       expect(v3.isGreaterThan(v4), isTrue);
     });
 
-    test('Release version is considered greater than pre-release (1.2.0 > 1.2.0-beta.2)', () {
+    test(
+        'Release version is considered greater than pre-release (1.2.0 > 1.2.0-beta.2)',
+        () {
       final release = AppVersion.parse('1.2.0');
       final beta = AppVersion.parse('1.2.0-beta.2');
 
@@ -53,7 +55,9 @@ void main() {
       expect(beta1.isLessThan(beta2), isTrue);
     });
 
-    test('Correctly compares numeric pre-release segments: 1.2.0-beta.10 > 1.2.0-beta.2', () {
+    test(
+        'Correctly compares numeric pre-release segments: 1.2.0-beta.10 > 1.2.0-beta.2',
+        () {
       final beta2 = AppVersion.parse('1.2.0-beta.2');
       final beta10 = AppVersion.parse('1.2.0-beta.10');
 
@@ -62,7 +66,8 @@ void main() {
       expect(beta2.isLessThan(beta10), isTrue);
     });
 
-    test('Correctly compares pre-release names: 1.2.0-beta.1 > 1.2.0-alpha.5', () {
+    test('Correctly compares pre-release names: 1.2.0-beta.1 > 1.2.0-alpha.5',
+        () {
       final alpha = AppVersion.parse('1.2.0-alpha.5');
       final beta = AppVersion.parse('1.2.0-beta.1');
 
@@ -70,7 +75,9 @@ void main() {
       expect(alpha.isLessThan(beta), isTrue);
     });
 
-    test('Correctly compares longer pre-release parts: 1.2.0-beta.1.1 > 1.2.0-beta.1', () {
+    test(
+        'Correctly compares longer pre-release parts: 1.2.0-beta.1.1 > 1.2.0-beta.1',
+        () {
       final shortBeta = AppVersion.parse('1.2.0-beta.1');
       final longBeta = AppVersion.parse('1.2.0-beta.1.1');
 
@@ -80,24 +87,28 @@ void main() {
   });
 
   group('AppRelease JSON Parsing and Asset Selection Tests', () {
-    test('Correctly parses release metadata and locates Windows .exe asset', () {
+    test('Correctly parses release metadata and locates Windows .exe asset',
+        () {
       final json = {
         'tag_name': 'v1.2.0-beta.2',
         'name': 'ShopFlow POS v1.2.0-beta.2 Pre-Release',
         'body': '• Automated background updater\n• Performance improvements',
         'published_at': '2026-08-15T18:00:00Z',
-        'html_url': 'https://github.com/muzammil608/pos_mobile/releases/tag/v1.2.0-beta.2',
+        'html_url':
+            'https://github.com/muzammil608/pos_mobile/releases/tag/v1.2.0-beta.2',
         'prerelease': true,
         'draft': false,
         'assets': [
           {
             'name': 'source_code.zip',
-            'browser_download_url': 'https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/source.zip',
+            'browser_download_url':
+                'https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/source.zip',
             'size': 1024000,
           },
           {
             'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
-            'browser_download_url': 'https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
+            'browser_download_url':
+                'https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
             'size': 47185920,
             'digest': 'sha256:abcd1234efgh5678',
           },
@@ -112,19 +123,37 @@ void main() {
       expect(release.isPrerelease, isTrue);
       expect(release.isDraft, isFalse);
       expect(release.assetName, equals('ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
-      expect(release.assetDownloadUrl, equals('https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
+      expect(
+          release.assetDownloadUrl,
+          equals(
+              'https://github.com/muzammil608/pos_mobile/releases/download/v1.2.0-beta.2/ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
       expect(release.assetDigest, equals('abcd1234efgh5678'));
       expect(release.formattedSize, equals('45.0 MB'));
       expect(release.formattedPublishedDate, contains('Aug 15, 2026'));
     });
 
-    test('Selects the installer matching the release version exactly, ignoring arbitrary or older exes', () {
+    test(
+        'Selects the installer matching the release version exactly, ignoring arbitrary or older exes',
+        () {
       final release = AppRelease.fromJson({
         'tag_name': 'v1.2.0-beta.2',
         'assets': [
-          {'name': 'other_tool.exe', 'browser_download_url': 'https://example.com/other.exe', 'size': 100},
-          {'name': 'ShopFlow_POS_Setup_v1.2.0-beta.1.exe', 'browser_download_url': 'https://example.com/v1.exe', 'size': 200},
-          {'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe', 'browser_download_url': 'https://example.com/v2.exe', 'size': 300, 'digest': 'sha256:digest123'},
+          {
+            'name': 'other_tool.exe',
+            'browser_download_url': 'https://example.com/other.exe',
+            'size': 100
+          },
+          {
+            'name': 'ShopFlow_POS_Setup_v1.2.0-beta.1.exe',
+            'browser_download_url': 'https://example.com/v1.exe',
+            'size': 200
+          },
+          {
+            'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
+            'browser_download_url': 'https://example.com/v2.exe',
+            'size': 300,
+            'digest': 'sha256:digest123'
+          },
         ],
       });
 
@@ -134,7 +163,9 @@ void main() {
       expect(release.assetDigest, 'digest123');
     });
 
-    test('Does not select stale or non-matching exe when no version-matching installer exists', () {
+    test(
+        'Does not select stale or non-matching exe when no version-matching installer exists',
+        () {
       final release = AppRelease.fromJson({
         'tag_name': 'v1.2.0-beta.2',
         'assets': [
@@ -158,7 +189,8 @@ void main() {
         'assets': [
           {
             'name': 'ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
-            'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
+            'browser_download_url':
+                'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.2.exe',
             'size': 50000000,
           }
         ],
@@ -172,7 +204,8 @@ void main() {
         'assets': [
           {
             'name': 'ShopFlow_POS_Setup_v1.2.0-beta.1.exe',
-            'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.1.exe',
+            'browser_download_url':
+                'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.1.exe',
             'size': 50000000,
           }
         ],
@@ -186,7 +219,8 @@ void main() {
         'assets': [
           {
             'name': 'ShopFlow_POS_Setup_v1.3.0.exe',
-            'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.3.0.exe',
+            'browser_download_url':
+                'https://example.com/ShopFlow_POS_Setup_v1.3.0.exe',
             'size': 50000000,
           }
         ],
@@ -200,14 +234,17 @@ void main() {
         'assets': [
           {
             'name': 'ShopFlow_POS_Setup_v1.1.9.exe',
-            'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.1.9.exe',
+            'browser_download_url':
+                'https://example.com/ShopFlow_POS_Setup_v1.1.9.exe',
             'size': 50000000,
           }
         ],
       },
     ]);
 
-    test('Beta channel detects 1.2.0-beta.2 when current version is 1.2.0-beta.1', () async {
+    test(
+        'Beta channel detects 1.2.0-beta.2 when current version is 1.2.0-beta.1',
+        () async {
       final mockClient = MockClient((request) async {
         expect(request.url.path, endsWith('/releases'));
         return http.Response(sampleReleasesJson, 200);
@@ -225,7 +262,9 @@ void main() {
       expect(result.channel, equals(UpdateChannel.beta));
     });
 
-    test('Stable channel ignores pre-releases and selects newest stable release', () async {
+    test(
+        'Stable channel ignores pre-releases and selects newest stable release',
+        () async {
       final mockClient = MockClient((request) async {
         return http.Response(sampleReleasesJson, 200);
       });
@@ -241,7 +280,9 @@ void main() {
       expect(result.release?.isPrerelease, isFalse);
     });
 
-    test('Stable channel reports up to date when current version is already on newest stable', () async {
+    test(
+        'Stable channel reports up to date when current version is already on newest stable',
+        () async {
       final mockClient = MockClient((request) async {
         return http.Response(sampleReleasesJson, 200);
       });
@@ -272,7 +313,9 @@ void main() {
       expect(result.release?.version, equals('1.2.0-beta.2'));
     });
 
-    test('Returns clear error when newer release has no matching Windows installer', () async {
+    test(
+        'Returns clear error when newer release has no matching Windows installer',
+        () async {
       final noInstallerJson = jsonEncode([
         {
           'tag_name': 'v1.2.0-beta.3',
@@ -316,11 +359,15 @@ void main() {
         return http.Response('[]', 200);
       });
 
-      final future1 = AutoUpdateManager.instance.checkForUpdatesInBackground(client: mockClient);
-      final future2 = AutoUpdateManager.instance.checkForUpdatesInBackground(client: mockClient);
+      final future1 = AutoUpdateManager.instance
+          .checkForUpdatesInBackground(client: mockClient);
+      final future2 = AutoUpdateManager.instance
+          .checkForUpdatesInBackground(client: mockClient);
 
       final result2 = await future2;
-      expect(result2, isNull, reason: 'Overlapping request must return immediately without duplicating work');
+      expect(result2, isNull,
+          reason:
+              'Overlapping request must return immediately without duplicating work');
 
       final result1 = await future1;
       expect(result1, isNotNull);
@@ -337,7 +384,9 @@ void main() {
       expect(AutoUpdateManager.instance.isChecking, isFalse);
     });
 
-    testWidgets('Prompts update dialog only once per release during the session', (tester) async {
+    testWidgets(
+        'Prompts update dialog only once per release during the session',
+        (tester) async {
       final releaseJson = jsonEncode([
         {
           'tag_name': 'v1.2.0-beta.99',
@@ -348,7 +397,8 @@ void main() {
           'assets': [
             {
               'name': 'ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
-              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
+              'browser_download_url':
+                  'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
               'size': 50000000,
             }
           ],
@@ -368,12 +418,14 @@ void main() {
       );
 
       // 1. First background check finds update and triggers dialog
-      AutoUpdateManager.instance.checkForUpdatesInBackground(client: mockClient);
+      AutoUpdateManager.instance
+          .checkForUpdatesInBackground(client: mockClient);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.text('Software Update Available'), findsOneWidget);
-      expect(AutoUpdateManager.instance.lastPromptedReleaseVersion, equals('1.2.0-beta.99'));
+      expect(AutoUpdateManager.instance.lastPromptedReleaseVersion,
+          equals('1.2.0-beta.99'));
 
       // Dismiss dialog by clicking 'Later'
       await tester.tap(find.text('Later'));
@@ -382,7 +434,8 @@ void main() {
       expect(find.text('Software Update Available'), findsNothing);
 
       // 2. Subsequent background check for the same release in the same session does NOT re-prompt
-      final check2 = await AutoUpdateManager.instance.checkForUpdatesInBackground(client: mockClient);
+      final check2 = await AutoUpdateManager.instance
+          .checkForUpdatesInBackground(client: mockClient);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -390,7 +443,8 @@ void main() {
       expect(find.text('Software Update Available'), findsNothing);
     });
 
-    testWidgets('Manual check opens dialog even if previously dismissed', (tester) async {
+    testWidgets('Manual check opens dialog even if previously dismissed',
+        (tester) async {
       final releaseJson = jsonEncode([
         {
           'tag_name': 'v1.2.0-beta.99',
@@ -401,7 +455,8 @@ void main() {
           'assets': [
             {
               'name': 'ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
-              'browser_download_url': 'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
+              'browser_download_url':
+                  'https://example.com/ShopFlow_POS_Setup_v1.2.0-beta.99.exe',
               'size': 50000000,
             }
           ],
@@ -419,7 +474,8 @@ void main() {
           home: Scaffold(
             body: Builder(
               builder: (ctx) => ElevatedButton(
-                onPressed: () => AutoUpdateManager.instance.performManualCheck(ctx, client: mockClient),
+                onPressed: () => AutoUpdateManager.instance
+                    .performManualCheck(ctx, client: mockClient),
                 child: const Text('Manual Check'),
               ),
             ),
@@ -437,7 +493,9 @@ void main() {
   });
 
   group('UpdateDialog Widget Tests', () {
-    testWidgets('Renders update details and buttons accurately with channel badge', (WidgetTester tester) async {
+    testWidgets(
+        'Renders update details and buttons accurately with channel badge',
+        (WidgetTester tester) async {
       const release = AppRelease(
         version: '1.2.0-beta.2',
         tagName: 'v1.2.0-beta.2',
@@ -471,7 +529,8 @@ void main() {
       expect(find.textContaining('New Update Checker'), findsOneWidget);
     });
 
-    testWidgets('Renders Up to Date dialog accurately', (WidgetTester tester) async {
+    testWidgets('Renders Up to Date dialog accurately',
+        (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -492,13 +551,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text("You're Up to Date!"), findsOneWidget);
-      expect(find.textContaining('v1.2.0-beta.2 is the latest version available'), findsOneWidget);
+      expect(
+          find.textContaining('v1.2.0-beta.2 is the latest version available'),
+          findsOneWidget);
       expect(find.text('Great'), findsOneWidget);
     });
   });
 
   group('AppUpdateButton Widget Tests', () {
-    testWidgets('Renders AppUpdateButton with text, tooltip, and icon', (WidgetTester tester) async {
+    testWidgets('Renders AppUpdateButton with text, tooltip, and icon',
+        (WidgetTester tester) async {
       tester.view.physicalSize = const Size(1280, 800);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() => tester.view.resetPhysicalSize());
@@ -525,34 +587,61 @@ void main() {
   });
 
   group('PowerShell Updater Script Generation Tests', () {
-    test('Generates complete updater script with all paths, elevated installer launch, and verification', () {
+    test(
+        'Generates complete updater script with all paths, elevated installer launch, and verification',
+        () {
       final script = UpdateService.generateUpdaterScriptContent(
-        installerPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe',
+        installerPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe',
         targetExePath: r'C:\Program Files\ShopFlow POS\pos_system.exe',
-        targetDirPath: r'C:\Program Files\ShopFlow POS',
         expectedVersion: '1.2.0-beta.4',
-        expectedDigest: 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678',
-        failedMarkerPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe.failed',
-        debugLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_debug.log',
-        innoLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update.log',
-        errorLogPath: r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_error.log',
+        expectedDigest:
+            'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678',
+        failedMarkerPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe.failed',
+        debugLogPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_debug.log',
+        innoLogPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update.log',
+        errorLogPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_error.log',
       );
 
       // Verifies core requirements:
-      expect(script, contains(r"$installer = 'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe'"));
-      expect(script, contains(r"$targetExe = 'C:\Program Files\ShopFlow POS\pos_system.exe'"));
+      expect(
+          script,
+          contains(
+              r"$installer = 'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_POS_Setup_v1.2.0-beta.4.exe'"));
+      expect(
+          script,
+          contains(
+              r"$targetExe = 'C:\Program Files\ShopFlow POS\pos_system.exe'"));
       expect(script, contains(r"$expectedVersion = '1.2.0-beta.4'"));
-      expect(script, contains(r"$expectedDigest = 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678'"));
-      expect(script, contains('Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs'));
+      expect(
+          script,
+          contains(
+              r"$expectedDigest = 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678'"));
+      expect(
+          script,
+          contains(
+              'Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs'));
       expect(script, contains(r'/VERYSILENT'));
       expect(script, contains(r'/SUPPRESSMSGBOXES'));
       expect(script, contains(r'/FORCECLOSEAPPLICATIONS'));
-      expect(script, contains('Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."'));
-      expect(script, contains('Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru'));
+      expect(
+          script,
+          contains(
+              'Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."'));
+      expect(
+          script,
+          contains(
+              'Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru'));
       expect(script, contains('Monitoring startup health...'));
     });
 
-    test('Version validation logic differentiates between matching and stale binaries', () {
+    test(
+        'Version validation logic differentiates between matching and stale binaries',
+        () {
       const expectedVersion = '1.2.0-beta.4';
       const freshInstalledVersion = '1.2.0-beta.4+66';
       const staleInstalledVersion = '1.2.0-beta.3+65';
@@ -563,15 +652,19 @@ void main() {
   });
 
   group('Safety and Replay Prevention Tests', () {
-    test('Temp installer file is named appropriately and located in temp directory', () {
+    test(
+        'Temp installer file is named appropriately and located in temp directory',
+        () {
       final file = UpdateService.getTempInstallerFile(version: '1.2.0-beta.2');
       expect(file.path, contains('ShopFlow_Update'));
       expect(file.path, endsWith('ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
     });
 
     test('Expected installer filename is derived from version correctly', () {
-      expect(AppRelease.expectedInstallerFileName('1.2.0-beta.2'), equals('ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
-      expect(AppRelease.expectedInstallerFileName('v1.2.0'), equals('ShopFlow_POS_Setup_v1.2.0.exe'));
+      expect(AppRelease.expectedInstallerFileName('1.2.0-beta.2'),
+          equals('ShopFlow_POS_Setup_v1.2.0-beta.2.exe'));
+      expect(AppRelease.expectedInstallerFileName('v1.2.0'),
+          equals('ShopFlow_POS_Setup_v1.2.0.exe'));
     });
   });
 

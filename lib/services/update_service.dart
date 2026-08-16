@@ -87,7 +87,6 @@ class AppRelease {
     final tagName = json['tag_name']?.toString() ?? '';
     final rawVersion = tagName.replaceAll(RegExp(r'^[vV]'), '');
 
-    // Parse assets to find the exact version-matching Windows installer .exe
     String? downloadUrl;
     String? assetName;
     int? assetSize;
@@ -97,8 +96,6 @@ class AppRelease {
     if (assets != null && assets.isNotEmpty) {
       dynamic match;
       final vEscaped = RegExp.escape(rawVersion);
-      // Strictly match installer filenames that contain the exact version string
-      // e.g. ShopFlow_POS_Setup_v1.2.0-beta.2.exe or ShopFlow_POS_Setup_1.2.0-beta.2.exe
       final exactInstallerPattern = RegExp(
         r'(?:^|[\-_])v?' + vEscaped + r'(?:[\-_.]|\.exe$)',
         caseSensitive: false,
@@ -209,7 +206,6 @@ class AppVersion implements Comparable<AppVersion> {
       return aInt.compareTo(bInt);
     }
     if (aInt != null && bInt == null) {
-      // Numeric identifiers have lower precedence than non-numeric in SemVer 2.0
       return -1;
     }
     if (aInt == null && bInt != null) {
@@ -220,7 +216,6 @@ class AppVersion implements Comparable<AppVersion> {
 
   static int _comparePreRelease(String preA, String preB) {
     if (preA == preB) return 0;
-    // Release > Pre-release (e.g. 1.2.0 > 1.2.0-beta.1)
     if (preA.isEmpty && preB.isNotEmpty) return 1;
     if (preA.isNotEmpty && preB.isEmpty) return -1;
     if (preA.isEmpty && preB.isEmpty) return 0;
@@ -317,6 +312,16 @@ class UpdateDownloadCancelToken {
   }
 }
 
+/// Result of checking whether the previous background update attempt failed.
+/// Call [UpdateService.checkForPreviousUpdateFailure] once at app startup
+/// (e.g. in main() after the first frame) and surface [message] to the user
+/// if [failed] is true, so a failed silent update is no longer invisible.
+class PreviousUpdateFailure {
+  final bool failed;
+  final String? message;
+  const PreviousUpdateFailure({required this.failed, this.message});
+}
+
 class UpdateService {
   UpdateService._();
 
@@ -353,11 +358,8 @@ class UpdateService {
         for (final item in listData) {
           if (item is! Map<String, dynamic>) continue;
           final release = AppRelease.fromJson(item);
-          if (release.isDraft) continue; // Ignore drafts
+          if (release.isDraft) continue;
 
-          // Channel filtering:
-          // Stable channel: ignore pre-releases
-          // Beta channel: accept both stable and pre-releases
           if (targetChannel == UpdateChannel.stable && release.isPrerelease) {
             continue;
           }
@@ -373,7 +375,6 @@ class UpdateService {
           );
         }
 
-        // Sort candidate releases by semantic version descending
         candidateReleases.sort((a, b) {
           final verA = AppVersion.parse(a.version);
           final verB = AppVersion.parse(b.version);
@@ -464,7 +465,6 @@ class UpdateService {
           'No version-matching Windows installer was found for release ${release.version}.');
     }
 
-    // Ensure parent directory exists
     if (!await targetFile.parent.exists()) {
       await targetFile.parent.create(recursive: true);
     }
@@ -590,76 +590,41 @@ class UpdateService {
     }
   }
 
-  /// Generates the contents of the independent VBScript bootstrap file.
-  static String generateBootstrapVbsContent({
-    required String psScriptPath,
-    required String debugLogPath,
-  }) {
-    final escapedPsScript = psScriptPath.replaceAll('"', '""');
-    final escapedDebugLog = debugLogPath.replaceAll('"', '""');
-    return '''Option Explicit
-Dim objShellApp, fso, logFile
-Set objShellApp = CreateObject("Shell.Application")
-Set fso = CreateObject("Scripting.FileSystemObject")
-
-Sub WriteLog(msg)
-    On Error Resume Next
-    Set logFile = fso.OpenTextFile("$escapedDebugLog", 8, True)
-    If Err.Number = 0 Then
-        logFile.WriteLine "[" & Now & "] [BOOTSTRAP-VBS] " & msg
-        logFile.Close
-    End If
-    On Error GoTo 0
-End Sub
-
-WriteLog "Stage 1/7: Bootstrap script started"
-WriteLog "Requesting elevated execution for PowerShell updater: $escapedPsScript"
-
-Dim psArgs
-psArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""$escapedPsScript"""
-objShellApp.ShellExecute "powershell.exe", psArgs, "", "runas", 1
-
-WScript.Sleep 1000
-
-WriteLog "PowerShell updater process dispatched. Bootstrap exiting cleanly."
-''';
-  }
-
   /// Generates the contents of the PowerShell updater script.
+  ///
+  /// FIX: this script no longer relaunches pos_system.exe itself (the old
+  /// "Stage 6" that used explorer.exe). installer.iss's [Run] entry
+  /// (Flags: nowait postinstall runasoriginaluser) is now the ONLY relaunch
+  /// mechanism. Having both fire was causing two instances of the app to
+  /// open after every silent update.
   static String generateUpdaterScriptContent({
     required String installerPath,
     required String targetExePath,
-    required String targetDirPath,
     required String expectedVersion,
     String? expectedDigest,
     required String failedMarkerPath,
     required String debugLogPath,
     required String innoLogPath,
     required String errorLogPath,
-    String? bootstrapVbsPath,
   }) {
-    final installer   = _psQuote(installerPath);
-    final targetExe   = _psQuote(targetExePath);
-    final targetDir   = _psQuote(targetDirPath);
-    final expVersion  = _psQuote(expectedVersion);
-    final expDigest   = _psQuote(expectedDigest ?? '');
-    final failedMk    = _psQuote(failedMarkerPath);
-    final dbgLog      = _psQuote(debugLogPath);
-    final innoL       = _psQuote(innoLogPath);
-    final errLog      = _psQuote(errorLogPath);
-    final bsVbs       = _psQuote(bootstrapVbsPath ?? '');
+    final installer = _psQuote(installerPath);
+    final targetExe = _psQuote(targetExePath);
+    final expVersion = _psQuote(expectedVersion);
+    final expDigest = _psQuote(expectedDigest ?? '');
+    final failedMk = _psQuote(failedMarkerPath);
+    final dbgLog = _psQuote(debugLogPath);
+    final innoL = _psQuote(innoLogPath);
+    final errLog = _psQuote(errorLogPath);
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
 \$installer      = $installer
 \$targetExe      = $targetExe
-\$targetDir      = $targetDir
 \$expectedVersion = $expVersion
 \$expectedDigest  = $expDigest
 \$failedMarker   = $failedMk
 \$debugLog       = $dbgLog
 \$innoLog        = $innoL
 \$errorLog       = $errLog
-\$bootstrapVbs   = $bsVbs
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -684,7 +649,7 @@ function Fail-Update(\$msg) {
 }
 
 Write-UpdateLog "=========================================="
-Write-UpdateLog "Stage 1/7: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
+Write-UpdateLog "Stage 1/6: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
 Write-UpdateLog "Installer path : \$installer"
 Write-UpdateLog "Target EXE     : \$targetExe"
 Write-UpdateLog "Expected ver   : \$expectedVersion"
@@ -727,12 +692,12 @@ if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
 }
 
 # ----- Stage 2: Record current installed version BEFORE update -----
-Write-UpdateLog "Stage 2/7: Recording pre-update version..."
+Write-UpdateLog "Stage 2/6: Recording pre-update version..."
 \$versionBefore = Get-FileProductVersion \$targetExe
 Write-UpdateLog "Version BEFORE update: \$(if (\$versionBefore) { \$versionBefore } else { '(not installed / unreadable)' })"
 
 # ----- Stage 3: Terminate running processes -----
-Write-UpdateLog "Stage 3/7: Terminating pos_system.exe and pocketbase.exe..."
+Write-UpdateLog "Stage 3/6: Terminating pos_system.exe and pocketbase.exe..."
 \$maxWait = 30
 \$waited  = 0
 while (\$waited -lt \$maxWait) {
@@ -748,33 +713,54 @@ Start-Sleep -Seconds 2
 Write-UpdateLog "Processes terminated (or were already gone)"
 
 # ----- Stage 4: Run installer elevated and wait for completion -----
-Write-UpdateLog "Stage 4/7: Launching installer with UAC elevation..."
+Write-UpdateLog "Stage 4/6: Launching installer with UAC elevation..."
 Write-UpdateLog "  Path: \$installer"
 \$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"\$innoLog`"")
 Write-UpdateLog "  Args: \$(\$installerArgs -join ' ')"
 
 try {
-    # Launch elevated without -Wait because .NET Start-Process -Wait hangs on ShellExecuteEx RunAs handles
+    # Launch elevated without -Wait because .NET Start-Process -Wait hangs on
+    # ShellExecuteEx RunAs handles. This PowerShell process is kept alive by
+    # this whole script (no premature exit), which is what installer.iss's
+    # [Run] entry (Flags: runasoriginaluser) needs: a live, non-elevated
+    # parent process to pull the original user's token from when it
+    # relaunches pos_system.exe after the silent install completes.
     Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -ErrorAction Stop
-    Write-UpdateLog "Stage 4/7: Installer dispatched. Waiting for installer process to finish..."
-    
-    Start-Sleep -Seconds 2
+    Write-UpdateLog "Stage 4/6: Installer dispatched. Confirming it started..."
+
+    # Confirm the installer process actually appeared before polling for its
+    # exit -- avoids a false "already finished" read if process spawn is slow
+    # (e.g. AV scanning the exe before it runs).
     \$setupBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installer)
-    \$maxWait = 120
-    \$waited  = 0
-    while (\$waited -lt \$maxWait) {
-        \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
-        if (-not \$activeProcs) { break }
+    \$startConfirmWait = 0
+    \$startConfirmMax  = 20
+    \$sawInstallerStart = \$false
+    while (\$startConfirmWait -lt \$startConfirmMax) {
+        \$p = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
+        if (\$p) { \$sawInstallerStart = \$true; break }
         Start-Sleep -Milliseconds 500
-        \$waited += 0.5
+        \$startConfirmWait += 0.5
     }
-    Write-UpdateLog "Stage 4/7: Installer execution finished (waited \$waited s)."
+    if (-not \$sawInstallerStart) {
+        Write-UpdateLog "  WARNING: never observed installer process by name -- it may have completed very fast, or elevation was denied. Continuing to version check."
+    } else {
+        Write-UpdateLog "  Installer process confirmed running. Waiting for it to finish..."
+        \$maxWait = 120
+        \$waited  = 0
+        while (\$waited -lt \$maxWait) {
+            \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
+            if (-not \$activeProcs) { break }
+            Start-Sleep -Milliseconds 500
+            \$waited += 0.5
+        }
+        Write-UpdateLog "Stage 4/6: Installer execution finished (waited \$waited s)."
+    }
 } catch {
     Fail-Update "Exception launching installer: \$_"
 }
 
 # ----- Stage 5: Pause and verify installed version changed -----
-Write-UpdateLog "Stage 5/7: Pausing 2 s for file handles to release..."
+Write-UpdateLog "Stage 5/6: Pausing 2 s for file handles to release..."
 Start-Sleep -Seconds 2
 
 if (-not (Test-Path \$targetExe -PathType Leaf)) {
@@ -798,45 +784,30 @@ if (\$expectedVersion -and \$expectedVersion.Trim() -ne "" -and \$versionAfter) 
     }
 }
 
-# ----- Stage 6: Relaunch app as normal user via explorer.exe -----
-Write-UpdateLog "Stage 6/7: Relaunching \$targetExe as normal user..."
-try {
-    \$explorerPath = Join-Path \$env:SystemRoot "explorer.exe"
-    \$launchProc = Start-Process -FilePath \$explorerPath -ArgumentList "`"\$targetExe`"" -PassThru -ErrorAction Stop
-    if (\$null -ne \$launchProc) {
-        Write-UpdateLog "  explorer.exe PID: \$(\$launchProc.Id)"
-    }
-    Write-UpdateLog "Relaunch command dispatched via explorer.exe"
-} catch {
-    Write-UpdateLog "  explorer.exe launch failed: \$_ -- attempting direct launch"
-    try {
-        \$fallback = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
-        Write-UpdateLog "  Direct launch PID: \$(if (\$fallback) { \$fallback.Id } else { 'null' })"
-    } catch {
-        Write-UpdateLog "  Direct launch also failed: \$_"
-    }
-}
+# NOTE: Relaunch is intentionally NOT done here. installer.iss's [Run] entry
+# (Flags: nowait postinstall runasoriginaluser) already relaunched
+# pos_system.exe as part of the silent install above. Relaunching again from
+# here would open a second instance of the app.
 
-# ----- Stage 7: Cleanup -----
-Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."
+# ----- Stage 6: Cleanup -----
+Write-UpdateLog "Stage 6/6: Cleaning up temporary files..."
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
-if (\$bootstrapVbs -and (Test-Path \$bootstrapVbs)) {
-    Remove-Item -Path \$bootstrapVbs -Force -ErrorAction SilentlyContinue
-}
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 Write-UpdateLog "Update transaction COMPLETE. \$versionBefore -> \$versionAfter"
 Write-UpdateLog "=========================================="
 ''';
   }
 
-  /// Starts an independent bootstrap updater. The updater owns the rest of the transaction
-  /// because this process must exit before an installed executable can change.
+  /// Starts an independent background updater. The updater owns the rest of
+  /// the transaction because this process must exit before an installed
+  /// executable can change. The app relaunch after install is handled by
+  /// installer.iss's [Run] entry, not by this script -- do not add a
+  /// relaunch step here (see comment in generateUpdaterScriptContent).
   static Future<bool> relaunchAndInstall(
     File installerFile, {
     String? expectedVersion,
     String? expectedDigest,
     String? targetExePathOverride,
-    String? targetDirPathOverride,
   }) async {
     if (!await installerFile.exists()) {
       return false;
@@ -852,9 +823,6 @@ Write-UpdateLog "=========================================="
         final appExePath = targetExePathOverride != null
             ? p.normalize(targetExePathOverride)
             : p.normalize(Platform.resolvedExecutable);
-        final appDir = targetDirPathOverride != null
-            ? p.normalize(targetDirPathOverride)
-            : p.normalize(File(appExePath).parent.path);
 
         final version =
             expectedVersion ?? _versionFromInstallerName(installerFile);
@@ -908,15 +876,12 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('Initiate update transaction');
         writeLauncherLog('Installer: $installerPath');
         writeLauncherLog('TargetExe: $appExePath');
-        writeLauncherLog('TargetDir: $appDir');
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
-        // Write the standalone background updater script
         final updaterScriptContent = generateUpdaterScriptContent(
           installerPath: installerPath,
           targetExePath: appExePath,
-          targetDirPath: appDir,
           expectedVersion: version,
           expectedDigest: expectedDigest,
           failedMarkerPath: failedMarkerPath,
@@ -947,7 +912,8 @@ Write-UpdateLog "=========================================="
           workingDirectory: updateDir.path,
         );
 
-        writeLauncherLog('Detached updater dispatched. Exiting application for update transaction.');
+        writeLauncherLog(
+            'Detached updater dispatched. Exiting application for update transaction.');
 
         await Future<void>.delayed(const Duration(milliseconds: 500));
 
@@ -963,6 +929,53 @@ Write-UpdateLog "=========================================="
     } catch (e) {
       debugPrint('Error launching installer: $e');
       return false;
+    }
+  }
+
+  /// Call once at app startup (e.g. after the first frame in main.dart) to
+  /// find out whether the last background update attempt failed. Previously
+  /// this information was written to a .failed marker + error log but never
+  /// read back by the app, so a failed silent update was invisible to the
+  /// user. Deletes the marker after reading so it's only reported once.
+  static Future<PreviousUpdateFailure> checkForPreviousUpdateFailure() async {
+    if (kIsWeb || !Platform.isWindows) {
+      return const PreviousUpdateFailure(failed: false);
+    }
+    try {
+      final updateDir = Directory(
+        p.join(Directory.systemTemp.path, 'ShopFlow_Update'),
+      );
+      if (!updateDir.existsSync()) {
+        return const PreviousUpdateFailure(failed: false);
+      }
+
+      // .failed markers are written next to the installer as
+      // "<installer>.failed" -- scan for any such file left over.
+      final failedMarkers = updateDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.failed'))
+          .toList();
+
+      if (failedMarkers.isEmpty) {
+        return const PreviousUpdateFailure(failed: false);
+      }
+
+      final marker = failedMarkers.first;
+      String message = 'The last update attempt did not complete.';
+      try {
+        final content = marker.readAsStringSync().trim();
+        if (content.isNotEmpty) message = content;
+      } catch (_) {}
+
+      try {
+        marker.deleteSync();
+      } catch (_) {}
+
+      return PreviousUpdateFailure(failed: true, message: message);
+    } catch (e) {
+      debugPrint('checkForPreviousUpdateFailure error: $e');
+      return const PreviousUpdateFailure(failed: false);
     }
   }
 

@@ -267,6 +267,15 @@ class _UpdateDialogState extends State<UpdateDialog> {
   StreamSubscription<UpdateDownloadProgress>? _downloadSub;
   UpdateDownloadCancelToken? _cancelToken;
 
+  // FIX: the header close (X) button previously only checked _isDownloading,
+  // so a user could dismiss the dialog while relaunchAndInstall() was
+  // mid-flight (PocketBase shutdown, writing update_runner.ps1, launching
+  // the detached PowerShell process). Dismissing didn't actually stop that
+  // work -- it's an in-flight await, not tied to widget lifecycle -- but the
+  // UI gave no indication anything was still happening. This flag gates the
+  // close button for the one operation that's about to terminate the app.
+  bool get _isBusy => _isDownloading || _isLaunching;
+
   @override
   void dispose() {
     _downloadSub?.cancel();
@@ -342,6 +351,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
     setState(() => _isLaunching = true);
 
+    // NOTE: on success this call ends with exit(0) inside UpdateService --
+    // the process is gone before it would ever return true, so "success"
+    // has no visible UI state here. This branch only ever fires for a
+    // genuine early failure (installer missing, or an exception thrown
+    // before the process exits).
     final success = await UpdateService.relaunchAndInstall(
       _downloadedFile!,
       expectedVersion: widget.release.version,
@@ -487,10 +501,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
             ),
           ),
           IconButton(
-            tooltip: 'Close',
+            tooltip: _isBusy ? 'Please wait...' : 'Close',
             icon: const Icon(Icons.close_rounded, color: Colors.white70),
-            onPressed:
-                _isDownloading ? null : () => Navigator.of(context).pop(),
+            onPressed: _isBusy ? null : () => Navigator.of(context).pop(),
           ),
         ],
       ),
@@ -951,7 +964,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
         children: [
           Expanded(
             child: OutlinedButton(
-              onPressed: () => Navigator.of(context).pop(),
+              // FIX: also disabled while _isLaunching, matching the header
+              // close button -- previously this stayed tappable during the
+              // relaunch/install sequence.
+              onPressed:
+                  _isLaunching ? null : () => Navigator.of(context).pop(),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: NovaColors.borderTertiary),
                 shape: RoundedRectangleBorder(
