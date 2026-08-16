@@ -927,15 +927,16 @@ Write-UpdateLog "=========================================="
         ];
         writeLauncherLog('Updater arguments: $updaterArguments');
         writeLauncherLog('Updater working directory: ${updateDir.path}');
-        writeLauncherLog('ProcessStartMode: ProcessStartMode.detached');
-        writeLauncherLog('Launching detached background updater process...');
+        writeLauncherLog('ProcessStartMode: ProcessStartMode.normal');
+        writeLauncherLog(
+            'Launching independent PowerShell child process without stdio piping...');
 
         late final Process updaterProcess;
         try {
           updaterProcess = await Process.start(
             powershellExecutable,
             updaterArguments,
-            mode: ProcessStartMode.detached,
+            mode: ProcessStartMode.normal,
             workingDirectory: updateDir.path,
           );
         } catch (e) {
