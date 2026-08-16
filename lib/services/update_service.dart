@@ -706,24 +706,54 @@ Write-UpdateLog "Stage 2/7: Recording pre-update version..."
 Write-UpdateLog "Version BEFORE update: \$(if (\$versionBefore) { \$versionBefore } else { '(not installed / unreadable)' })"
 
 # ----- Stage 3: Wait for old processes to completely exit -----
-Write-UpdateLog "Stage 3/7: Waiting for old pos_system.exe and pocketbase.exe to exit..."
+function Get-TrackedProcesses() {
+    @(Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue)
+}
+
+function Write-TrackedProcessDiagnostics(\$label) {
+    \$tracked = Get-TrackedProcesses
+    if (-not \$tracked) {
+        Write-UpdateLog "Stage 3 diagnostics (\$label): no pos_system.exe or pocketbase.exe process found."
+        return
+    }
+    foreach (\$process in \$tracked) {
+        \$path = '(path unavailable)'
+        try { \$path = \$process.Path } catch { }
+        Write-UpdateLog "Stage 3 diagnostics (\$label): Name=\$((\$process).Name), PID=\$((\$process).Id), Path=\$path"
+    }
+}
+
+Write-UpdateLog "Stage 3/7: Waiting for old processes to exit..."
+Write-TrackedProcessDiagnostics 'initial'
 \$maxWait = 30
 \$waited  = 0
 while (\$waited -lt \$maxWait) {
-    \$procs = Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue
+    \$procs = Get-TrackedProcesses
     if (-not \$procs) { break }
     Write-UpdateLog "  Waiting for processes to exit (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
     Start-Sleep -Seconds 1
     \$waited++
 }
-Get-Process -Name "pos_system"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process -Name "pocketbase"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-\$remaining = Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue
-if (\$remaining) {
-    Fail-Update "Old processes did not exit: \$((\$remaining | Out-String).Trim())"
+
+if (\$procs) {
+    Write-TrackedProcessDiagnostics "after wait (\$waited s)"
+    foreach (\$process in @(\$procs)) {
+        try {
+            Stop-Process -Id \$process.Id -Force -ErrorAction Stop
+            Write-UpdateLog "Stage 3: Stop-Process succeeded for \$((\$process).Name) PID \$((\$process).Id)"
+        } catch {
+            Write-UpdateLog "Stage 3: Stop-Process FAILED for \$((\$process).Name) PID \$((\$process).Id): \$_"
+        }
+    }
 }
-Write-UpdateLog "Old processes confirmed exited."
+
+Start-Sleep -Seconds 2
+\$remaining = Get-TrackedProcesses
+Write-TrackedProcessDiagnostics 'final'
+if (\$remaining) {
+    Fail-Update "Old processes did not exit after graceful wait and force-stop: \$((\$remaining | Out-String).Trim())"
+}
+Write-UpdateLog "Stage 3 complete: old processes confirmed exited; proceeding to Stage 4."
 
 # ----- Stage 4: Run installer elevated and wait for completion -----
 Write-UpdateLog "Stage 4/7: Launching installer with UAC elevation..."
@@ -927,16 +957,15 @@ Write-UpdateLog "=========================================="
         ];
         writeLauncherLog('Updater arguments: $updaterArguments');
         writeLauncherLog('Updater working directory: ${updateDir.path}');
-        writeLauncherLog('ProcessStartMode: ProcessStartMode.normal');
-        writeLauncherLog(
-            'Launching independent PowerShell child process without stdio piping...');
+        writeLauncherLog('ProcessStartMode: ProcessStartMode.detached');
+        writeLauncherLog('Launching independent detached PowerShell process...');
 
         late final Process updaterProcess;
         try {
           updaterProcess = await Process.start(
             powershellExecutable,
             updaterArguments,
-            mode: ProcessStartMode.normal,
+            mode: ProcessStartMode.detached,
             workingDirectory: updateDir.path,
           );
         } catch (e) {
