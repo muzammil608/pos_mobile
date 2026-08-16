@@ -889,6 +889,7 @@ Write-UpdateLog "=========================================="
           'update_runner.ps1',
         );
         final updaterStartedMarkerPath = '$updaterScriptPath.started';
+        final updaterPidPath = '$updaterStartedMarkerPath.pid';
 
         final timestamp = DateTime.now().toIso8601String();
 
@@ -929,6 +930,8 @@ Write-UpdateLog "=========================================="
         try {
           final marker = File(updaterStartedMarkerPath);
           if (marker.existsSync()) marker.deleteSync();
+          final pidFile = File(updaterPidPath);
+          if (pidFile.existsSync()) pidFile.deleteSync();
         } catch (_) {}
 
         writeLauncherLog('Update runner script generated: $updaterScriptPath');
@@ -955,17 +958,31 @@ Write-UpdateLog "=========================================="
           '-File',
           updaterScriptPath,
         ];
-        writeLauncherLog('Updater arguments: $updaterArguments');
+        writeLauncherLog('Updater script arguments: $updaterArguments');
         writeLauncherLog('Updater working directory: ${updateDir.path}');
-        writeLauncherLog('ProcessStartMode: ProcessStartMode.detached');
-        writeLauncherLog('Launching independent detached PowerShell process...');
+        final updaterArgumentString =
+            '-NoProfile -ExecutionPolicy Bypass -File "${updaterScriptPath}"';
+        final launcherCommand =
+            '\$child = Start-Process -FilePath ${_psQuote(powershellExecutable)} -ArgumentList ${_psQuote(updaterArgumentString)} -WorkingDirectory ${_psQuote(updateDir.path)} -PassThru -WindowStyle Hidden; Set-Content -LiteralPath ${_psQuote(updaterPidPath)} -Value \$child.Id -Encoding ascii -Force';
+        final launcherArguments = [
+          '-WindowStyle',
+          'Hidden',
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          launcherCommand,
+        ];
+        writeLauncherLog(
+            'Launch mechanism: Windows PowerShell Start-Process (independent child)');
+        writeLauncherLog('Launcher arguments: $launcherArguments');
 
         late final Process updaterProcess;
         try {
           updaterProcess = await Process.start(
             powershellExecutable,
-            updaterArguments,
-            mode: ProcessStartMode.detached,
+            launcherArguments,
+            mode: ProcessStartMode.normal,
             workingDirectory: updateDir.path,
           );
         } catch (e) {
@@ -974,7 +991,7 @@ Write-UpdateLog "=========================================="
         }
 
         writeLauncherLog(
-            'PROCESS CREATED: Detached updater dispatched (PID: ${updaterProcess.pid}).');
+            'PROCESS CREATED: Windows launcher dispatched (PID: ${updaterProcess.pid}).');
 
         Future<String> childProcessState() async {
           try {
@@ -1025,7 +1042,7 @@ Write-UpdateLog "=========================================="
           return false;
         }
         writeLauncherLog(
-            'MARKER CREATED and updater started for PID ${updaterProcess.pid}. Exiting application for update transaction.');
+            'MARKER CREATED: independent updater PID ${File(updaterPidPath).existsSync() ? File(updaterPidPath).readAsStringSync().trim() : "unavailable"}. Exiting application for update transaction.');
 
         exit(0);
       }
