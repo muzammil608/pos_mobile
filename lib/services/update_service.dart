@@ -919,8 +919,6 @@ Write-UpdateLog "=========================================="
             : 'powershell.exe';
         writeLauncherLog('PowerShell executable: $powershellExecutable');
         final updaterArguments = [
-          '-WindowStyle',
-          'Hidden',
           '-NoProfile',
           '-ExecutionPolicy',
           'Bypass',
@@ -929,6 +927,7 @@ Write-UpdateLog "=========================================="
         ];
         writeLauncherLog('Updater arguments: $updaterArguments');
         writeLauncherLog('Updater working directory: ${updateDir.path}');
+        writeLauncherLog('ProcessStartMode: ProcessStartMode.detached');
         writeLauncherLog('Launching detached background updater process...');
 
         late final Process updaterProcess;
@@ -945,12 +944,42 @@ Write-UpdateLog "=========================================="
         }
 
         writeLauncherLog(
-            'Detached updater dispatched (PID: ${updaterProcess.pid}). Exiting application for update transaction.');
+            'PROCESS CREATED: Detached updater dispatched (PID: ${updaterProcess.pid}).');
+
+        Future<String> childProcessState() async {
+          try {
+            final exitCode = await updaterProcess.exitCode
+                .timeout(const Duration(milliseconds: 100));
+            return 'PROCESS EXITED (exit code: $exitCode)';
+          } catch (_) {}
+
+          try {
+            final taskList = await Process.run(
+              'tasklist.exe',
+              ['/FI', 'PID eq ${updaterProcess.pid}', '/NH'],
+            );
+            final output = '${taskList.stdout}\n${taskList.stderr}';
+            if (output.contains('${updaterProcess.pid}')) {
+              return 'PROCESS STILL RUNNING';
+            }
+            return 'PROCESS NOT FOUND (exit code unavailable)';
+          } catch (e) {
+            return 'PROCESS STATE UNKNOWN ($e)';
+          }
+        }
+
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        writeLauncherLog('After 500 ms: ${await childProcessState()}');
+        await Future<void>.delayed(const Duration(seconds: 1));
+        writeLauncherLog('After 1.5 s: ${await childProcessState()}');
+        await Future<void>.delayed(const Duration(seconds: 2));
+        writeLauncherLog('After 3.5 s: ${await childProcessState()}');
 
         var updaterStarted = false;
-        for (var i = 0; i < 50; i++) {
+        for (var i = 0; i < 150; i++) {
           if (File(updaterStartedMarkerPath).existsSync()) {
             updaterStarted = true;
+            writeLauncherLog('MARKER CREATED: $updaterStartedMarkerPath');
             break;
           }
           await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -959,14 +988,14 @@ Write-UpdateLog "=========================================="
           int? childExitCode;
           try {
             childExitCode = await updaterProcess.exitCode
-                .timeout(const Duration(milliseconds: 100));
+                .timeout(const Duration(seconds: 1));
           } catch (_) {}
           writeLauncherLog(
-              'FAILED: detached updater PID ${updaterProcess.pid} did not create startup marker (child exit code: ${childExitCode ?? "still running or unavailable"}). Flutter process will remain running.');
+              'MARKER NOT CREATED: detached updater PID ${updaterProcess.pid}; ${childExitCode == null ? "PROCESS STILL RUNNING OR EXIT CODE UNAVAILABLE" : "PROCESS EXITED + EXIT CODE $childExitCode"}. Flutter process will remain running.');
           return false;
         }
         writeLauncherLog(
-            'Updater startup marker observed for PID ${updaterProcess.pid}. Exiting application for update transaction.');
+            'MARKER CREATED and updater started for PID ${updaterProcess.pid}. Exiting application for update transaction.');
 
         exit(0);
       }
