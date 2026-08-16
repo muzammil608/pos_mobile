@@ -604,6 +604,7 @@ class UpdateService {
     required String debugLogPath,
     required String innoLogPath,
     required String errorLogPath,
+    String? startupMarkerPath,
   }) {
     final installer = _psQuote(installerPath);
     final targetExe = _psQuote(targetExePath);
@@ -613,6 +614,7 @@ class UpdateService {
     final dbgLog = _psQuote(debugLogPath);
     final innoL = _psQuote(innoLogPath);
     final errLog = _psQuote(errorLogPath);
+    final startupMk = _psQuote(startupMarkerPath ?? '');
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
 \$installer = $installer
@@ -623,6 +625,11 @@ class UpdateService {
 \$debugLog = $dbgLog
 \$innoLog = $innoL
 \$errorLog = $errLog
+\$startupMarker = $startupMk
+
+if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
+    Set-Content -LiteralPath \$startupMarker -Value 'Updater script started' -Encoding utf8 -Force
+}
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -851,6 +858,7 @@ Write-UpdateLog "=========================================="
           updateDir.path,
           'update_runner.ps1',
         );
+        final updaterStartedMarkerPath = '$updaterScriptPath.started';
 
         final timestamp = DateTime.now().toIso8601String();
 
@@ -880,6 +888,7 @@ Write-UpdateLog "=========================================="
           debugLogPath: debugLogPath,
           innoLogPath: innoLogPath,
           errorLogPath: errorLogPath,
+          startupMarkerPath: updaterStartedMarkerPath,
         );
 
         File(updaterScriptPath).writeAsStringSync(
@@ -887,22 +896,41 @@ Write-UpdateLog "=========================================="
           mode: FileMode.writeOnly,
           flush: true,
         );
+        try {
+          final marker = File(updaterStartedMarkerPath);
+          if (marker.existsSync()) marker.deleteSync();
+        } catch (_) {}
 
         writeLauncherLog('Update runner script generated: $updaterScriptPath');
+        final systemRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';
+        final powershellCandidate = p.join(
+          systemRoot,
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe',
+        );
+        final powershellExecutable = File(powershellCandidate).existsSync()
+            ? powershellCandidate
+            : 'powershell.exe';
+        final bootstrapCommand = "& ${_psQuote(updaterScriptPath)}";
+        writeLauncherLog('PowerShell executable: $powershellExecutable');
+        writeLauncherLog(
+            'Updater command: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command <bootstrap>');
         writeLauncherLog('Launching detached background updater process...');
 
         late final Process updaterProcess;
         try {
           updaterProcess = await Process.start(
-            'powershell.exe',
+            powershellExecutable,
             [
               '-WindowStyle',
               'Hidden',
               '-NoProfile',
               '-ExecutionPolicy',
               'Bypass',
-              '-File',
-              updaterScriptPath,
+              '-Command',
+              bootstrapCommand,
             ],
             mode: ProcessStartMode.detached,
             workingDirectory: updateDir.path,
@@ -915,7 +943,21 @@ Write-UpdateLog "=========================================="
         writeLauncherLog(
             'Detached updater dispatched (PID: ${updaterProcess.pid}). Exiting application for update transaction.');
 
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        var updaterStarted = false;
+        for (var i = 0; i < 50; i++) {
+          if (File(updaterStartedMarkerPath).existsSync()) {
+            updaterStarted = true;
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        if (!updaterStarted) {
+          writeLauncherLog(
+              'FAILED: detached updater PID ${updaterProcess.pid} did not create startup marker. Flutter process will remain running.');
+          return false;
+        }
+        writeLauncherLog(
+            'Updater startup marker observed for PID ${updaterProcess.pid}. Exiting application for update transaction.');
 
         exit(0);
       }
