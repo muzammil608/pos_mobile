@@ -664,6 +664,18 @@ Write-UpdateLog "Target EXE     : \$targetExe"
 Write-UpdateLog "Expected ver   : \$expectedVersion"
 Write-UpdateLog "Expected SHA256: \$expectedDigest"
 
+if (-not \$isAdmin) {
+    Write-UpdateLog "Updater is not elevated. Re-launching itself with UAC before process shutdown."
+    try {
+        \$selfArgs = "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`""
+        \$elevatedUpdater = Start-Process -FilePath \$env:WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ArgumentList \$selfArgs -Verb RunAs -PassThru -ErrorAction Stop
+        Write-UpdateLog "Elevated updater dispatched (PID: \$((\$elevatedUpdater).Id)). The non-elevated updater is exiting."
+        exit 0
+    } catch {
+        Fail-Update "Could not elevate updater before terminating ShopFlow: \$_"
+    }
+}
+
 # ----- Pre-flight checks -----
 if (Test-Path \$failedMarker) {
     Write-UpdateLog "Stale .failed marker found -- clearing it and proceeding"
@@ -705,15 +717,25 @@ Write-UpdateLog "Stage 2/7: Recording pre-update version..."
 \$versionBefore = Get-FileProductVersion \$targetExe
 Write-UpdateLog "Version BEFORE update: \$(if (\$versionBefore) { \$versionBefore } else { '(not installed / unreadable)' })"
 
-# ----- Stage 3: Wait for old processes to completely exit -----
+# ----- Stage 3: Wait briefly, then explicitly terminate old processes -----
+\$targetDir = [System.IO.Path]::GetDirectoryName(\$targetExe)
+
 function Get-TrackedProcesses() {
-    @(Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue)
+    \$tracked = @()
+    foreach (\$process in @(Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue)) {
+        \$path = \$null
+        try { \$path = \$process.Path } catch { }
+        \$isShopFlowApp = \$process.Name -eq 'pos_system' -and \$path -and [System.IO.Path]::GetFullPath(\$path) -ieq [System.IO.Path]::GetFullPath(\$targetExe)
+        \$isShopFlowPocketBase = \$process.Name -eq 'pocketbase' -and \$path -and [System.IO.Path]::GetFullPath(\$path).StartsWith([System.IO.Path]::GetFullPath(\$targetDir), [System.StringComparison]::OrdinalIgnoreCase)
+        if (\$isShopFlowApp -or \$isShopFlowPocketBase) { \$tracked += \$process }
+    }
+    return @(\$tracked)
 }
 
 function Write-TrackedProcessDiagnostics(\$label) {
     \$tracked = Get-TrackedProcesses
     if (-not \$tracked) {
-        Write-UpdateLog "Stage 3 diagnostics (\$label): no pos_system.exe or pocketbase.exe process found."
+        Write-UpdateLog "Stage 3 diagnostics (\$label): no ShopFlow processes found."
         return
     }
     foreach (\$process in \$tracked) {
@@ -723,35 +745,35 @@ function Write-TrackedProcessDiagnostics(\$label) {
     }
 }
 
-Write-UpdateLog "Stage 3/7: Waiting for old processes to exit..."
+Write-UpdateLog "Stage 3/7: Waiting up to 5 seconds for old ShopFlow processes to exit..."
+Write-UpdateLog "Stage 3 updater PID: \$PID, Elevated: \$isAdmin"
 Write-TrackedProcessDiagnostics 'initial'
-\$maxWait = 30
-\$waited  = 0
+\$maxWait = 5
+\$waited = 0
 while (\$waited -lt \$maxWait) {
     \$procs = Get-TrackedProcesses
     if (-not \$procs) { break }
-    Write-UpdateLog "  Waiting for processes to exit (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
+    Write-UpdateLog "  Graceful wait (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
     Start-Sleep -Seconds 1
     \$waited++
 }
+Write-TrackedProcessDiagnostics "after graceful wait (\$waited s)"
 
-if (\$procs) {
-    Write-TrackedProcessDiagnostics "after wait (\$waited s)"
-    foreach (\$process in @(\$procs)) {
-        try {
-            Stop-Process -Id \$process.Id -Force -ErrorAction Stop
-            Write-UpdateLog "Stage 3: Stop-Process succeeded for \$((\$process).Name) PID \$((\$process).Id)"
-        } catch {
-            Write-UpdateLog "Stage 3: Stop-Process FAILED for \$((\$process).Name) PID \$((\$process).Id): \$_"
-        }
+foreach (\$process in @(Get-TrackedProcesses)) {
+    try {
+        Write-UpdateLog "Stage 3 termination attempt: Name=\$((\$process).Name), PID=\$((\$process).Id), Path=\$((\$process).Path)"
+        Stop-Process -Id \$process.Id -Force -ErrorAction Stop
+        Write-UpdateLog "Stage 3 termination succeeded: Name=\$((\$process).Name), PID=\$((\$process).Id)"
+    } catch {
+        Fail-Update "Stage 3 termination failed for \$((\$process).Name) PID \$((\$process).Id): \$_"
     }
 }
 
-Start-Sleep -Seconds 2
-\$remaining = Get-TrackedProcesses
-Write-TrackedProcessDiagnostics 'final'
+Start-Sleep -Milliseconds 500
+\$remaining = @(Get-TrackedProcesses)
+Write-TrackedProcessDiagnostics 'final verification'
 if (\$remaining) {
-    Fail-Update "Old processes did not exit after graceful wait and force-stop: \$((\$remaining | Out-String).Trim())"
+    Fail-Update "Stage 3 final verification failed; ShopFlow processes remain: \$((\$remaining | Out-String).Trim())"
 }
 Write-UpdateLog "Stage 3 complete: old processes confirmed exited; proceeding to Stage 4."
 
