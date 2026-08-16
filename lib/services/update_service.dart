@@ -754,24 +754,28 @@ Write-UpdateLog "  Path: \$installer"
 Write-UpdateLog "  Args: \$(\$installerArgs -join ' ')"
 
 try {
-    # -Verb RunAs on the installer produces a clean UAC prompt for the installer itself.
-    # PowerShell is running unelevated; only the installer needs admin rights.
-    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -Wait -PassThru
-    if (\$null -eq \$proc) {
-        Fail-Update "Start-Process returned null -- installer did not start"
+    # Launch elevated without -Wait because .NET Start-Process -Wait hangs on ShellExecuteEx RunAs handles
+    Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -ErrorAction Stop
+    Write-UpdateLog "Stage 4/7: Installer dispatched. Waiting for installer process to finish..."
+    
+    Start-Sleep -Seconds 2
+    \$setupBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installer)
+    \$maxWait = 120
+    \$waited  = 0
+    while (\$waited -lt \$maxWait) {
+        \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
+        if (-not \$activeProcs) { break }
+        Start-Sleep -Milliseconds 500
+        \$waited += 0.5
     }
-    \$exitCode = \$proc.ExitCode
-    Write-UpdateLog "Stage 4/7: Installer PID was \$(\$proc.Id) -- exit code: \$exitCode"
-    if (\$exitCode -ne 0) {
-        Fail-Update "Installer exited with code \$exitCode (non-zero = failure). Check: \$innoLog"
-    }
+    Write-UpdateLog "Stage 4/7: Installer execution finished (waited \$waited s)."
 } catch {
     Fail-Update "Exception launching installer: \$_"
 }
 
 # ----- Stage 5: Pause and verify installed version changed -----
-Write-UpdateLog "Stage 5/7: Pausing 3 s for file handles to release..."
-Start-Sleep -Seconds 3
+Write-UpdateLog "Stage 5/7: Pausing 2 s for file handles to release..."
+Start-Sleep -Seconds 2
 
 if (-not (Test-Path \$targetExe -PathType Leaf)) {
     Fail-Update "pos_system.exe missing after installer ran: \$targetExe"
