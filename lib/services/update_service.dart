@@ -879,10 +879,6 @@ Write-UpdateLog "=========================================="
           updateDir.path,
           'ShopFlow_Update.log',
         );
-        final errorLogPath = p.join(
-          updateDir.path,
-          'ShopFlow_Update_error.log',
-        );
 
         final timestamp = DateTime.now().toIso8601String();
 
@@ -904,49 +900,31 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        final psScriptFile = File(
-          p.join(updateDir.path, 'shopflow_updater_$nowMs.ps1'),
-        );
+        writeLauncherLog('Launching Inno Setup installer detached: $installerPath');
 
-        final scriptContent = generateUpdaterScriptContent(
-          installerPath: installerPath,
-          targetExePath: appExePath,
-          targetDirPath: appDir,
-          expectedVersion: version,
-          expectedDigest: expectedDigest,
-          failedMarkerPath: failedMarkerPath,
-          debugLogPath: debugLogPath,
-          innoLogPath: innoLogPath,
-          errorLogPath: errorLogPath,
-        );
-
-        await psScriptFile.writeAsString(
-          scriptContent,
-          flush: true,
-        );
-        writeLauncherLog('PowerShell updater written: ${psScriptFile.path}');
-        writeLauncherLog('Launching PowerShell updater directly (no VBS bootstrap): ${psScriptFile.path}');
-
-        // Launch PowerShell directly — no VBS intermediary needed.
-        // PowerShell runs unelevated; it will elevate only the installer
-        // via -Verb RunAs which produces a single clean UAC prompt.
+        // Launch the elevated installer directly using Windows detached process.
+        // Inno Setup itself prompts UAC (PrivilegesRequired=admin), executes InitializeSetup()
+        // to terminate any lingering processes with Administrator rights, installs silently,
+        // and uses [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as user.
         await Process.start(
-          'powershell.exe',
+          'cmd.exe',
           [
-            '-NoLogo',
-            '-NoProfile',
-            '-NonInteractive',
-            '-ExecutionPolicy', 'Bypass',
-            '-File', psScriptFile.path,
+            '/c',
+            'start',
+            '""',
+            installerPath,
+            '/VERYSILENT',
+            '/SUPPRESSMSGBOXES',
+            '/NORESTART',
+            '/LOG=$innoLogPath',
           ],
           mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
 
-        writeLauncherLog('PowerShell updater launched detached. Exiting app now.');
+        writeLauncherLog('Installer launched detached. Exiting application for update transaction.');
 
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await Future<void>.delayed(const Duration(milliseconds: 600));
 
         exit(0);
       }
