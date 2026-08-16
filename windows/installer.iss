@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.28"
+  #define MyAppVersion "1.2.0-beta.29"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
