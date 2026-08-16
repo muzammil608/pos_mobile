@@ -617,14 +617,14 @@ class UpdateService {
     final errLog = _psQuote(errorLogPath);
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
-\$installer      = $installer
-\$targetExe      = $targetExe
+\$installer = $installer
+\$targetExe = $targetExe
 \$expectedVersion = $expVersion
-\$expectedDigest  = $expDigest
-\$failedMarker   = $failedMk
-\$debugLog       = $dbgLog
-\$innoLog        = $innoL
-\$errorLog       = $errLog
+\$expectedDigest = $expDigest
+\$failedMarker = $failedMk
+\$debugLog = $dbgLog
+\$innoLog = $innoL
+\$errorLog = $errLog
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -649,7 +649,7 @@ function Fail-Update(\$msg) {
 }
 
 Write-UpdateLog "=========================================="
-Write-UpdateLog "Stage 1/6: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
+Write-UpdateLog "Stage 1/7: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
 Write-UpdateLog "Installer path : \$installer"
 Write-UpdateLog "Target EXE     : \$targetExe"
 Write-UpdateLog "Expected ver   : \$expectedVersion"
@@ -692,12 +692,12 @@ if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
 }
 
 # ----- Stage 2: Record current installed version BEFORE update -----
-Write-UpdateLog "Stage 2/6: Recording pre-update version..."
+Write-UpdateLog "Stage 2/7: Recording pre-update version..."
 \$versionBefore = Get-FileProductVersion \$targetExe
 Write-UpdateLog "Version BEFORE update: \$(if (\$versionBefore) { \$versionBefore } else { '(not installed / unreadable)' })"
 
-# ----- Stage 3: Terminate running processes -----
-Write-UpdateLog "Stage 3/6: Terminating pos_system.exe and pocketbase.exe..."
+# ----- Stage 3: Wait for old processes to completely exit -----
+Write-UpdateLog "Stage 3/7: Waiting for old pos_system.exe and pocketbase.exe to exit..."
 \$maxWait = 30
 \$waited  = 0
 while (\$waited -lt \$maxWait) {
@@ -710,57 +710,35 @@ while (\$waited -lt \$maxWait) {
 Get-Process -Name "pos_system"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Get-Process -Name "pocketbase"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
-Write-UpdateLog "Processes terminated (or were already gone)"
+Write-UpdateLog "Old processes confirmed exited."
 
 # ----- Stage 4: Run installer elevated and wait for completion -----
-Write-UpdateLog "Stage 4/6: Launching installer with UAC elevation..."
+Write-UpdateLog "Stage 4/7: Launching installer with UAC elevation..."
 Write-UpdateLog "  Path: \$installer"
-\$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"\$innoLog`"")
-Write-UpdateLog "  Args: \$(\$installerArgs -join ' ')"
+\$installerArgs = "/VERYSILENT /SUPPRESSMSGBOXES /FORCECLOSEAPPLICATIONS /NORESTART /LOG=`"\$innoLog`""
+Write-UpdateLog "  Args: \$installerArgs"
 
 try {
-    # Launch elevated without -Wait because .NET Start-Process -Wait hangs on
-    # ShellExecuteEx RunAs handles. This PowerShell process is kept alive by
-    # this whole script (no premature exit), which is what installer.iss's
-    # [Run] entry (Flags: runasoriginaluser) needs: a live, non-elevated
-    # parent process to pull the original user's token from when it
-    # relaunches pos_system.exe after the silent install completes.
-    Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -ErrorAction Stop
-    Write-UpdateLog "Stage 4/6: Installer dispatched. Confirming it started..."
+    Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs
+    Write-UpdateLog "Stage 4/7: Installer dispatched. Waiting for installer process to finish..."
 
-    # Confirm the installer process actually appeared before polling for its
-    # exit -- avoids a false "already finished" read if process spawn is slow
-    # (e.g. AV scanning the exe before it runs).
+    Start-Sleep -Seconds 2
     \$setupBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installer)
-    \$startConfirmWait = 0
-    \$startConfirmMax  = 20
-    \$sawInstallerStart = \$false
-    while (\$startConfirmWait -lt \$startConfirmMax) {
-        \$p = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
-        if (\$p) { \$sawInstallerStart = \$true; break }
+    \$maxWait = 120
+    \$waited  = 0
+    while (\$waited -lt \$maxWait) {
+        \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
+        if (-not \$activeProcs) { break }
         Start-Sleep -Milliseconds 500
-        \$startConfirmWait += 0.5
+        \$waited += 0.5
     }
-    if (-not \$sawInstallerStart) {
-        Write-UpdateLog "  WARNING: never observed installer process by name -- it may have completed very fast, or elevation was denied. Continuing to version check."
-    } else {
-        Write-UpdateLog "  Installer process confirmed running. Waiting for it to finish..."
-        \$maxWait = 120
-        \$waited  = 0
-        while (\$waited -lt \$maxWait) {
-            \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
-            if (-not \$activeProcs) { break }
-            Start-Sleep -Milliseconds 500
-            \$waited += 0.5
-        }
-        Write-UpdateLog "Stage 4/6: Installer execution finished (waited \$waited s)."
-    }
+    Write-UpdateLog "Stage 4/7: Installer execution finished (waited \$waited s)."
 } catch {
     Fail-Update "Exception launching installer: \$_"
 }
 
-# ----- Stage 5: Pause and verify installed version changed -----
-Write-UpdateLog "Stage 5/6: Pausing 2 s for file handles to release..."
+# ----- Stage 5: Verify new executable and expected version -----
+Write-UpdateLog "Stage 5/7: Verifying updated executable on disk..."
 Start-Sleep -Seconds 2
 
 if (-not (Test-Path \$targetExe -PathType Leaf)) {
@@ -768,29 +746,55 @@ if (-not (Test-Path \$targetExe -PathType Leaf)) {
 }
 
 \$versionAfter = Get-FileProductVersion \$targetExe
-Write-UpdateLog "Version AFTER  update: \$(if (\$versionAfter) { \$versionAfter } else { '(unreadable)' })"
-
-if (\$versionBefore -and \$versionAfter -and (\$versionAfter -eq \$versionBefore)) {
-    Fail-Update "Version did not change after installation (\$versionBefore -> \$versionAfter). Installer may have failed silently."
-}
+\$installedVersion = \$versionAfter
+Write-UpdateLog "Version AFTER update: \$(if (\$versionAfter) { \$versionAfter } else { '(unreadable)' })"
 
 if (\$expectedVersion -and \$expectedVersion.Trim() -ne "" -and \$versionAfter) {
     \$cleanExpected = (\$expectedVersion -replace '[+].*','').Trim()
     \$cleanActual   = (\$versionAfter   -replace '[+].*','').Trim()
-    if (\$cleanActual -ne \$cleanExpected) {
-        Write-UpdateLog "WARNING: Expected version '\$cleanExpected' but installed version is '\$cleanActual'. Proceeding anyway."
-    } else {
-        Write-UpdateLog "Version verified OK: \$cleanActual"
+    if (-not \$cleanActual.StartsWith(\$cleanExpected)) {
+        Fail-Update "Installed version (\$installedVersion) does not match expected version (\$expectedVersion). Stale binary detected."
+    }
+    Write-UpdateLog "Version verified successfully: \$versionAfter"
+}
+
+# ----- Stage 6: Restart pos_system.exe from detached updater -----
+Write-UpdateLog "Stage 6/7: Restarting pos_system.exe from detached updater..."
+Write-UpdateLog "  Target EXE: \$targetExe"
+\$targetDir = [System.IO.Path]::GetDirectoryName(\$targetExe)
+\$restarted = \$false
+
+try {
+    \$explorerPath = Join-Path \$env:SystemRoot "explorer.exe"
+    \$proc = Start-Process -FilePath \$explorerPath -ArgumentList "`"\$targetExe`"" -PassThru -ErrorAction Stop
+    Write-UpdateLog "  Restart dispatched via explorer.exe (PID: \$(\$proc.Id))"
+    \$restarted = \$true
+} catch {
+    Write-UpdateLog "  explorer.exe restart failed: \$_ -- attempting direct launch"
+}
+
+if (-not \$restarted) {
+    try {
+        \$proc = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
+        Write-UpdateLog "  Restart dispatched directly (PID: \$(\$proc.Id))"
+        \$restarted = \$true
+    } catch {
+        Write-UpdateLog "  Direct restart failed: \$_"
     }
 }
 
-# NOTE: Relaunch is intentionally NOT done here. installer.iss's [Run] entry
-# (Flags: nowait postinstall runasoriginaluser) already relaunched
-# pos_system.exe as part of the silent install above. Relaunching again from
-# here would open a second instance of the app.
+# Monitoring startup health...
+Write-UpdateLog "Monitoring startup health..."
+Start-Sleep -Seconds 2
+\$runningProcs = Get-Process -Name "pos_system" -ErrorAction SilentlyContinue
+if (\$runningProcs) {
+    Write-UpdateLog "Restart SUCCESS: pos_system.exe running (PID: \$((\$runningProcs | ForEach-Object { \$_.Id }) -join ', '))"
+} else {
+    Write-UpdateLog "WARNING: pos_system.exe not found in process table after restart dispatch."
+}
 
-# ----- Stage 6: Cleanup -----
-Write-UpdateLog "Stage 6/6: Cleaning up temporary files..."
+# ----- Stage 7: Cleanup -----
+Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 Write-UpdateLog "Update transaction COMPLETE. \$versionBefore -> \$versionAfter"
@@ -800,9 +804,8 @@ Write-UpdateLog "=========================================="
 
   /// Starts an independent background updater. The updater owns the rest of
   /// the transaction because this process must exit before an installed
-  /// executable can change. The app relaunch after install is handled by
-  /// installer.iss's [Run] entry, not by this script -- do not add a
-  /// relaunch step here (see comment in generateUpdaterScriptContent).
+  /// executable can change. The updater handles graceful waiting, installation,
+  /// verification, and automatic relaunch of pos_system.exe.
   static Future<bool> relaunchAndInstall(
     File installerFile, {
     String? expectedVersion,
@@ -900,8 +903,14 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('Launching detached background updater process...');
 
         await Process.start(
-          'powershell.exe',
+          'cmd.exe',
           [
+            '/c',
+            'start',
+            '""',
+            'powershell.exe',
+            '-WindowStyle',
+            'Hidden',
             '-NoProfile',
             '-ExecutionPolicy',
             'Bypass',

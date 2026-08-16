@@ -56,31 +56,9 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; ============================================================================
-; THIS IS THE ONLY RELAUNCH MECHANISM FOR THE APP AFTER AN UPDATE.
-;
-; update_service.dart's PowerShell updater (update_runner.ps1) does NOT
-; relaunch the app itself anymore -- an earlier version of that script had
-; its own relaunch step (via explorer.exe) running *in addition* to this
-; [Run] entry, which caused two instances of pos_system.exe to open after
-; every silent update. That relaunch step has been removed from the
-; PowerShell script; this entry is now the single source of truth.
-;
-; "skipifsilent" is deliberately absent: the updater always installs with
-; /VERYSILENT, and skipifsilent unconditionally skips this entry in silent
-; mode -- that was the original reason the app never came back after an
-; update.
-;
-; "runasoriginaluser" hands the relaunched process back to the normal user's
-; token instead of inheriting the installer's admin elevation. This works
-; reliably because the PowerShell updater keeps a live, non-elevated parent
-; process running for the entire install (it launches Setup.exe with
-; Start-Process -Verb RunAs and then polls for it to exit, rather than
-; exiting itself immediately) -- so runasoriginaluser always has a valid,
-; live parent token to query. The previous failure (silent relaunch failure)
-; was caused by that parent process dying within ~10ms of launching Setup.exe.
-; ============================================================================
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall runasoriginaluser
+; When running interactively with GUI, allow launching the app on finish.
+; When running silently with /VERYSILENT, the updater runner script handles relaunch via explorer.exe.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function InitializeSetup(): Boolean;
