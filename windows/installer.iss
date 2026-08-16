@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.25"
+  #define MyAppVersion "1.2.0-beta.26"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -52,29 +52,20 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; IMPORTANT: Do NOT add "postinstall" flag here.
-; "postinstall" causes Inno Setup to show this entry only on the wizard finish
-; page, which is skipped entirely when running with /VERYSILENT. Without
-; "postinstall", the [Run] entry always executes after installation regardless
-; of silent mode. "runasoriginaluser" ensures the app launches under the
-; logged-in user's token, not the elevated installer token.
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait runasoriginaluser
+; When running interactively with GUI, allow launching the app on finish.
+; When running silently with /VERYSILENT, the updater runner script handles relaunch via explorer.exe.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // Stage 1: Graceful termination — allows PocketBase to flush SQLite WAL journals cleanly.
-  // Without /F, taskkill sends WM_CLOSE which lets processes shut down gracefully.
-  Exec('taskkill.exe', '/IM pocketbase.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('taskkill.exe', '/IM pos_system.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(2000);
-
-  // Stage 2: Force-kill any processes that didn't respond to graceful shutdown.
+  // Force terminate any lingering instances of pos_system.exe and pocketbase.exe
+  // with full administrative permissions BEFORE copying or deleting any files.
   Exec('taskkill.exe', '/F /IM pos_system.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM pocketbase.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1500);
+  Sleep(1000);
   Result := True;
 end;
 

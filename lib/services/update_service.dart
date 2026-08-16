@@ -879,6 +879,14 @@ Write-UpdateLog "=========================================="
           updateDir.path,
           'ShopFlow_Update.log',
         );
+        final errorLogPath = p.join(
+          updateDir.path,
+          'ShopFlow_Update_error.log',
+        );
+        final updaterScriptPath = p.join(
+          updateDir.path,
+          'update_runner.ps1',
+        );
 
         final timestamp = DateTime.now().toIso8601String();
 
@@ -900,33 +908,44 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
-        writeLauncherLog('Launching installer with UAC elevation via PowerShell: $installerPath');
+        // Write the standalone background updater script
+        final updaterScriptContent = generateUpdaterScriptContent(
+          installerPath: installerPath,
+          targetExePath: appExePath,
+          targetDirPath: appDir,
+          expectedVersion: version,
+          expectedDigest: expectedDigest,
+          failedMarkerPath: failedMarkerPath,
+          debugLogPath: debugLogPath,
+          innoLogPath: innoLogPath,
+          errorLogPath: errorLogPath,
+        );
 
-        // Use PowerShell Start-Process -Verb RunAs to properly trigger UAC.
-        // A detached batch file cannot trigger UAC prompts (CreateProcess does not
-        // handle elevation). ShellExecuteEx with "runas" verb always shows the UAC
-        // prompt on the secure desktop, even from a detached/headless caller.
-        // Inno Setup executes InitializeSetup() to terminate any lingering app/pocketbase
-        // processes with full Administrator rights, installs all files cleanly, and runs
-        // [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as the standard user.
-        final installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$innoLogPath"';
+        File(updaterScriptPath).writeAsStringSync(
+          updaterScriptContent,
+          mode: FileMode.writeOnly,
+          flush: true,
+        );
+
+        writeLauncherLog('Update runner script generated: $updaterScriptPath');
+        writeLauncherLog('Launching detached background updater process...');
+
         await Process.start(
           'powershell.exe',
           [
             '-NoProfile',
-            '-NonInteractive',
             '-ExecutionPolicy',
             'Bypass',
-            '-Command',
-            'Start-Process -FilePath "$installerPath" -ArgumentList \'$installerArgs\' -Verb RunAs',
+            '-File',
+            updaterScriptPath,
           ],
           mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
 
-        writeLauncherLog('UAC elevation requested. Exiting application for update transaction.');
+        writeLauncherLog('Detached updater dispatched. Exiting application for update transaction.');
 
-        await Future<void>.delayed(const Duration(milliseconds: 600));
+        await Future<void>.delayed(const Duration(milliseconds: 500));
 
         exit(0);
       }
