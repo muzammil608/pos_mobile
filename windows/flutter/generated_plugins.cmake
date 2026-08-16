@@ -3,7 +3,6 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
-  file_selector_windows
   hotkey_manager_windows
   unified_esc_pos_printer
   url_launcher_windows
