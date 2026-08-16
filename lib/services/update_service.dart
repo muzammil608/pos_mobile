@@ -747,14 +747,16 @@ Get-Process -Name "pocketbase"  -ErrorAction SilentlyContinue | Stop-Process -Fo
 Start-Sleep -Seconds 2
 Write-UpdateLog "Processes terminated (or were already gone)"
 
-# ----- Stage 4: Run installer and wait for completion -----
-Write-UpdateLog "Stage 4/7: Launching installer..."
+# ----- Stage 4: Run installer elevated and wait for completion -----
+Write-UpdateLog "Stage 4/7: Launching installer with UAC elevation..."
 Write-UpdateLog "  Path: \$installer"
 \$installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=`"\$innoLog`"")
 Write-UpdateLog "  Args: \$(\$installerArgs -join ' ')"
 
 try {
-    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Wait -PassThru
+    # -Verb RunAs on the installer produces a clean UAC prompt for the installer itself.
+    # PowerShell is running unelevated; only the installer needs admin rights.
+    \$proc = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -Wait -PassThru
     if (\$null -eq \$proc) {
         Fail-Update "Start-Process returned null -- installer did not start"
     }
@@ -906,9 +908,6 @@ Write-UpdateLog "=========================================="
         final psScriptFile = File(
           p.join(updateDir.path, 'shopflow_updater_$nowMs.ps1'),
         );
-        final vbsScriptFile = File(
-          p.join(updateDir.path, 'shopflow_bootstrap_$nowMs.vbs'),
-        );
 
         final scriptContent = generateUpdaterScriptContent(
           installerPath: installerPath,
@@ -920,7 +919,6 @@ Write-UpdateLog "=========================================="
           debugLogPath: debugLogPath,
           innoLogPath: innoLogPath,
           errorLogPath: errorLogPath,
-          bootstrapVbsPath: vbsScriptFile.path,
         );
 
         await psScriptFile.writeAsString(
@@ -928,50 +926,27 @@ Write-UpdateLog "=========================================="
           flush: true,
         );
         writeLauncherLog('PowerShell updater written: ${psScriptFile.path}');
+        writeLauncherLog('Launching PowerShell updater directly (no VBS bootstrap): ${psScriptFile.path}');
 
-        final vbsContent = generateBootstrapVbsContent(
-          psScriptPath: psScriptFile.path,
-          debugLogPath: debugLogPath,
-        );
-        await vbsScriptFile.writeAsString(
-          vbsContent,
-          flush: true,
-        );
-        writeLauncherLog('Bootstrap launcher written: ${vbsScriptFile.path}');
-
-        final systemWScript = p.join(
-          Platform.environment['SystemRoot'] ?? r'C:\Windows',
-          'System32',
-          'wscript.exe',
-        );
-        final wscriptExe =
-            File(systemWScript).existsSync() ? systemWScript : 'wscript.exe';
-
-        writeLauncherLog('Executing bootstrap launcher: $wscriptExe');
-
-        final bootstrapResult = await Process.run(
-          wscriptExe,
-          [vbsScriptFile.path],
+        // Launch PowerShell directly — no VBS intermediary needed.
+        // PowerShell runs unelevated; it will elevate only the installer
+        // via -Verb RunAs which produces a single clean UAC prompt.
+        await Process.start(
+          'powershell.exe',
+          [
+            '-NoLogo',
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', psScriptFile.path,
+          ],
+          mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
 
-        if (bootstrapResult.exitCode != 0) {
-          writeLauncherLog(
-            'Bootstrap launcher failed with exit code ${bootstrapResult.exitCode}: ${bootstrapResult.stderr}',
-          );
-          throw StateError(
-            'Bootstrap launcher failed with exit code ${bootstrapResult.exitCode}',
-          );
-        }
+        writeLauncherLog('PowerShell updater launched detached. Exiting app now.');
 
-        writeLauncherLog(
-          'Bootstrap launcher executed successfully (ExitCode: 0)',
-        );
-        writeLauncherLog('Exiting application for update transaction');
-
-        await Future<void>.delayed(
-          const Duration(milliseconds: 300),
-        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
 
         exit(0);
       }
