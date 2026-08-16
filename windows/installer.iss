@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.23"
+  #define MyAppVersion "1.2.0-beta.24"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -65,11 +65,16 @@ function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;
 begin
-  // Force terminate any lingering instances of pos_system.exe and pocketbase.exe
-  // with full administrative permissions BEFORE copying or deleting any files.
+  // Stage 1: Graceful termination — allows PocketBase to flush SQLite WAL journals cleanly.
+  // Without /F, taskkill sends WM_CLOSE which lets processes shut down gracefully.
+  Exec('taskkill.exe', '/IM pocketbase.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/IM pos_system.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(2000);
+
+  // Stage 2: Force-kill any processes that didn't respond to graceful shutdown.
   Exec('taskkill.exe', '/F /IM pos_system.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM pocketbase.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(500);
+  Sleep(1500);
   Result := True;
 end;
 

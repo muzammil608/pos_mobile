@@ -58,6 +58,24 @@ class PocketBaseServerManager {
       final exeDir = File(absoluteExe).parent.path;
       final dataDir = _getDataDirectory(exeDir);
 
+      // Clean up stale SQLite shared-memory lock files left behind by force-killed
+      // PocketBase processes during updates. SHM files are safe to delete when no
+      // process holds the database open — they are recreated automatically on open.
+      // This prevents the new PocketBase instance from failing to acquire DB locks.
+      for (final dbName in ['data.db', 'auxiliary.db']) {
+        final shmFile = File(p.join(dataDir, '$dbName-shm'));
+        if (shmFile.existsSync()) {
+          try {
+            shmFile.deleteSync();
+            debugPrint(
+                '[PocketBaseServerManager] Removed stale lock file: ${shmFile.path}');
+          } catch (e) {
+            debugPrint(
+                '[PocketBaseServerManager] Could not remove ${shmFile.path}: $e');
+          }
+        }
+      }
+
       debugPrint(
           '[PocketBaseServerManager] Found executable: $absoluteExe');
       debugPrint(

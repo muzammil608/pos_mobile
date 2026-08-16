@@ -900,29 +900,31 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
-        final batFile = File(p.join(updateDir.path, 'run_installer.bat'));
-        await batFile.writeAsString(
-          '@echo off\r\n'
-          '"$installerPath" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$innoLogPath"\r\n',
-          flush: true,
-        );
+        writeLauncherLog('Launching installer with UAC elevation via PowerShell: $installerPath');
 
-        writeLauncherLog('Wrote launcher batch file: ${batFile.path}');
-        writeLauncherLog('Launching Inno Setup installer via batch wrapper: $installerPath');
-
-        // Launch the batch wrapper directly in detached mode.
-        // Windows immediately displays the UAC prompt for the elevated installer.
+        // Use PowerShell Start-Process -Verb RunAs to properly trigger UAC.
+        // A detached batch file cannot trigger UAC prompts (CreateProcess does not
+        // handle elevation). ShellExecuteEx with "runas" verb always shows the UAC
+        // prompt on the secure desktop, even from a detached/headless caller.
         // Inno Setup executes InitializeSetup() to terminate any lingering app/pocketbase
         // processes with full Administrator rights, installs all files cleanly, and runs
         // [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as the standard user.
+        final installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$innoLogPath"';
         await Process.start(
-          batFile.path,
-          [],
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-Command',
+            'Start-Process -FilePath "$installerPath" -ArgumentList \'$installerArgs\' -Verb RunAs',
+          ],
           mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
 
-        writeLauncherLog('Installer launched detached. Exiting application for update transaction.');
+        writeLauncherLog('UAC elevation requested. Exiting application for update transaction.');
 
         await Future<void>.delayed(const Duration(milliseconds: 600));
 
