@@ -902,6 +902,10 @@ Write-UpdateLog "=========================================="
         } catch (_) {}
 
         writeLauncherLog('Update runner script generated: $updaterScriptPath');
+        writeLauncherLog(
+            'Updater script exists: ${File(updaterScriptPath).existsSync()}, size: ${File(updaterScriptPath).lengthSync()} bytes');
+        writeLauncherLog(
+            'Startup marker: $updaterStartedMarkerPath (exists: ${File(updaterStartedMarkerPath).existsSync()})');
         final systemRoot = Platform.environment['SystemRoot'] ?? r'C:\Windows';
         final powershellCandidate = p.join(
           systemRoot,
@@ -913,25 +917,25 @@ Write-UpdateLog "=========================================="
         final powershellExecutable = File(powershellCandidate).existsSync()
             ? powershellCandidate
             : 'powershell.exe';
-        final bootstrapCommand = "& ${_psQuote(updaterScriptPath)}";
         writeLauncherLog('PowerShell executable: $powershellExecutable');
-        writeLauncherLog(
-            'Updater command: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command <bootstrap>');
+        final updaterArguments = [
+          '-WindowStyle',
+          'Hidden',
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          updaterScriptPath,
+        ];
+        writeLauncherLog('Updater arguments: $updaterArguments');
+        writeLauncherLog('Updater working directory: ${updateDir.path}');
         writeLauncherLog('Launching detached background updater process...');
 
         late final Process updaterProcess;
         try {
           updaterProcess = await Process.start(
             powershellExecutable,
-            [
-              '-WindowStyle',
-              'Hidden',
-              '-NoProfile',
-              '-ExecutionPolicy',
-              'Bypass',
-              '-Command',
-              bootstrapCommand,
-            ],
+            updaterArguments,
             mode: ProcessStartMode.detached,
             workingDirectory: updateDir.path,
           );
@@ -952,8 +956,13 @@ Write-UpdateLog "=========================================="
           await Future<void>.delayed(const Duration(milliseconds: 100));
         }
         if (!updaterStarted) {
+          int? childExitCode;
+          try {
+            childExitCode = await updaterProcess.exitCode
+                .timeout(const Duration(milliseconds: 100));
+          } catch (_) {}
           writeLauncherLog(
-              'FAILED: detached updater PID ${updaterProcess.pid} did not create startup marker. Flutter process will remain running.');
+              'FAILED: detached updater PID ${updaterProcess.pid} did not create startup marker (child exit code: ${childExitCode ?? "still running or unavailable"}). Flutter process will remain running.');
           return false;
         }
         writeLauncherLog(
