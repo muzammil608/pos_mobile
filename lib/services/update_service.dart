@@ -900,24 +900,24 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
-        writeLauncherLog('Launching Inno Setup installer detached: $installerPath');
+        final batFile = File(p.join(updateDir.path, 'run_installer.bat'));
+        await batFile.writeAsString(
+          '@echo off\r\n'
+          '"$installerPath" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="$innoLogPath"\r\n',
+          flush: true,
+        );
 
-        // Launch the elevated installer directly using Windows detached process.
-        // Inno Setup itself prompts UAC (PrivilegesRequired=admin), executes InitializeSetup()
-        // to terminate any lingering processes with Administrator rights, installs silently,
-        // and uses [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as user.
+        writeLauncherLog('Wrote launcher batch file: ${batFile.path}');
+        writeLauncherLog('Launching Inno Setup installer via batch wrapper: $installerPath');
+
+        // Launch the batch wrapper detached.
+        // Windows immediately displays the UAC prompt for the elevated installer.
+        // Inno Setup executes InitializeSetup() to terminate any lingering app/pocketbase
+        // processes with full Administrator rights, installs all files cleanly, and runs
+        // [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as the standard user.
         await Process.start(
           'cmd.exe',
-          [
-            '/c',
-            'start',
-            '""',
-            installerPath,
-            '/VERYSILENT',
-            '/SUPPRESSMSGBOXES',
-            '/NORESTART',
-            '/LOG=$innoLogPath',
-          ],
+          ['/c', 'start', '/min', '""', batFile.path],
           mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
