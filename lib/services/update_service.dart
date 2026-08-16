@@ -667,9 +667,32 @@ Write-UpdateLog "Expected SHA256: \$expectedDigest"
 if (-not \$isAdmin) {
     Write-UpdateLog "Updater is not elevated. Re-launching itself with UAC before process shutdown."
     try {
-        \$selfArgs = "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`""
-        \$elevatedUpdater = Start-Process -FilePath \$env:WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ArgumentList \$selfArgs -Verb RunAs -PassThru -ErrorAction Stop
-        Write-UpdateLog "Elevated updater dispatched (PID: \$((\$elevatedUpdater).Id)). The non-elevated updater is exiting."
+        \$selfPowerShell = Join-Path \$env:WINDIR 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+        \$selfArguments = @(
+            '-NoProfile',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            "`"\$PSCommandPath`""
+        )
+        \$selfWorkingDirectory = Split-Path -Parent \$PSCommandPath
+        Write-UpdateLog "Elevation executable: \$selfPowerShell"
+        Write-UpdateLog "Elevation script path: \$PSCommandPath"
+        Write-UpdateLog "Elevation arguments: \$((\$selfArguments -join ' '))"
+        Write-UpdateLog "Elevation working directory: \$selfWorkingDirectory"
+        \$elevatedUpdater = Start-Process -FilePath \$selfPowerShell -ArgumentList \$selfArguments -WorkingDirectory \$selfWorkingDirectory -Verb RunAs -PassThru -ErrorAction Stop
+        \$elevatedPid = \$elevatedUpdater.Id
+        Write-UpdateLog "Elevated updater dispatched (PID: \$elevatedPid). The non-elevated updater is exiting."
+        \$elevatedRunning = \$null
+        for (\$elevationWait = 0; \$elevationWait -lt 20; \$elevationWait++) {
+            Start-Sleep -Milliseconds 500
+            \$elevatedRunning = Get-Process -Id \$elevatedPid -ErrorAction SilentlyContinue
+            if (\$elevatedRunning) { break }
+        }
+        Write-UpdateLog "Elevated child running after dispatch: \$([bool]\$elevatedRunning)"
+        if (-not \$elevatedRunning) {
+            Fail-Update "Elevated updater PID \$elevatedPid exited before reaching the updater script."
+        }
         exit 0
     } catch {
         Fail-Update "Could not elevate updater before terminating ShopFlow: \$_"
