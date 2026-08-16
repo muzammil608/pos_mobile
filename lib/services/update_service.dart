@@ -910,14 +910,14 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('Wrote launcher batch file: ${batFile.path}');
         writeLauncherLog('Launching Inno Setup installer via batch wrapper: $installerPath');
 
-        // Launch the batch wrapper detached.
+        // Launch the batch wrapper directly in detached mode.
         // Windows immediately displays the UAC prompt for the elevated installer.
         // Inno Setup executes InitializeSetup() to terminate any lingering app/pocketbase
         // processes with full Administrator rights, installs all files cleanly, and runs
         // [Run] Flags: nowait runasoriginaluser to relaunch pos_system.exe as the standard user.
         await Process.start(
-          'cmd.exe',
-          ['/c', 'start', '/min', '""', batFile.path],
+          batFile.path,
+          [],
           mode: ProcessStartMode.detached,
           workingDirectory: updateDir.path,
         );
