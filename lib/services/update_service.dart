@@ -592,11 +592,9 @@ class UpdateService {
 
   /// Generates the contents of the PowerShell updater script.
   ///
-  /// FIX: this script no longer relaunches pos_system.exe itself (the old
-  /// "Stage 6" that used explorer.exe). installer.iss's [Run] entry
-  /// (Flags: nowait postinstall runasoriginaluser) is now the ONLY relaunch
-  /// mechanism. Having both fire was causing two instances of the app to
-  /// open after every silent update.
+  /// The updater owns the complete transaction after the Flutter process exits.
+  /// Inno Setup skips its [Run] entry for /VERYSILENT, so restart must happen
+  /// here and must be verified before the updater reports success.
   static String generateUpdaterScriptContent({
     required String installerPath,
     required String targetExePath,
@@ -649,7 +647,11 @@ function Fail-Update(\$msg) {
 }
 
 Write-UpdateLog "=========================================="
-Write-UpdateLog "Stage 1/7: PowerShell updater started (running as: \$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name))"
+\$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+\$principal = New-Object System.Security.Principal.WindowsPrincipal(\$identity)
+\$isAdmin = \$principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+\$elevation = (Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name ConsentPromptBehaviorAdmin -ErrorAction SilentlyContinue).ConsentPromptBehaviorAdmin
+Write-UpdateLog "Stage 1/7: PowerShell updater started (PID: \$PID, ParentPID: \$((Get-CimInstance Win32_Process -Filter "ProcessId = \$PID").ParentProcessId), Identity: \$((\$identity).Name), Elevated: \$isAdmin, ConsentPromptBehaviorAdmin: \$elevation)"
 Write-UpdateLog "Installer path : \$installer"
 Write-UpdateLog "Target EXE     : \$targetExe"
 Write-UpdateLog "Expected ver   : \$expectedVersion"
@@ -710,6 +712,10 @@ while (\$waited -lt \$maxWait) {
 Get-Process -Name "pos_system"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Get-Process -Name "pocketbase"  -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
+\$remaining = Get-Process -Name "pos_system","pocketbase" -ErrorAction SilentlyContinue
+if (\$remaining) {
+    Fail-Update "Old processes did not exit: \$((\$remaining | Out-String).Trim())"
+}
 Write-UpdateLog "Old processes confirmed exited."
 
 # ----- Stage 4: Run installer elevated and wait for completion -----
@@ -719,22 +725,16 @@ Write-UpdateLog "  Path: \$installer"
 Write-UpdateLog "  Args: \$installerArgs"
 
 try {
-    Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs
-    Write-UpdateLog "Stage 4/7: Installer dispatched. Waiting for installer process to finish..."
-
-    Start-Sleep -Seconds 2
-    \$setupBaseName = [System.IO.Path]::GetFileNameWithoutExtension(\$installer)
-    \$maxWait = 120
-    \$waited  = 0
-    while (\$waited -lt \$maxWait) {
-        \$activeProcs = Get-Process -ErrorAction SilentlyContinue | Where-Object { \$_.ProcessName -like "\$setupBaseName*" -or \$_.ProcessName -like "is-*" }
-        if (-not \$activeProcs) { break }
-        Start-Sleep -Milliseconds 500
-        \$waited += 0.5
+    # -Wait is essential: process-name polling misses Inno's elevated child
+    # (often renamed to an is-*.tmp process) and can race file replacement.
+    \$installerProcess = Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru -Wait -ErrorAction Stop
+    \$installerExitCode = \$installerProcess.ExitCode
+    Write-UpdateLog "Stage 4/7: Installer completed (PID: \$((\$installerProcess).Id), ExitCode: \$installerExitCode)."
+    if (\$installerExitCode -ne 0) {
+        Fail-Update "Installer returned non-success exit code \$installerExitCode. See Inno log: \$innoLog"
     }
-    Write-UpdateLog "Stage 4/7: Installer execution finished (waited \$waited s)."
 } catch {
-    Fail-Update "Exception launching installer: \$_"
+    Fail-Update "Exception launching/waiting for installer (UAC denied or setup failed): \$_"
 }
 
 # ----- Stage 5: Verify new executable and expected version -----
@@ -762,42 +762,31 @@ if (\$expectedVersion -and \$expectedVersion.Trim() -ne "" -and \$versionAfter) 
 Write-UpdateLog "Stage 6/7: Restarting pos_system.exe from detached updater..."
 Write-UpdateLog "  Target EXE: \$targetExe"
 \$targetDir = [System.IO.Path]::GetDirectoryName(\$targetExe)
-\$restarted = \$false
-
 try {
-    \$explorerPath = Join-Path \$env:SystemRoot "explorer.exe"
-    \$proc = Start-Process -FilePath \$explorerPath -ArgumentList "`"\$targetExe`"" -PassThru -ErrorAction Stop
-    Write-UpdateLog "  Restart dispatched via explorer.exe (PID: \$(\$proc.Id))"
-    \$restarted = \$true
+    \$proc = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru -ErrorAction Stop
+    Write-UpdateLog "  Restart dispatched directly (PID: \$(\$proc.Id))"
 } catch {
-    Write-UpdateLog "  explorer.exe restart failed: \$_ -- attempting direct launch"
-}
-
-if (-not \$restarted) {
-    try {
-        \$proc = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru
-        Write-UpdateLog "  Restart dispatched directly (PID: \$(\$proc.Id))"
-        \$restarted = \$true
-    } catch {
-        Write-UpdateLog "  Direct restart failed: \$_"
-    }
+    Fail-Update "Direct restart failed: \$_"
 }
 
 # Monitoring startup health...
 Write-UpdateLog "Monitoring startup health..."
-Start-Sleep -Seconds 2
-\$runningProcs = Get-Process -Name "pos_system" -ErrorAction SilentlyContinue
-if (\$runningProcs) {
-    Write-UpdateLog "Restart SUCCESS: pos_system.exe running (PID: \$((\$runningProcs | ForEach-Object { \$_.Id }) -join ', '))"
-} else {
-    Write-UpdateLog "WARNING: pos_system.exe not found in process table after restart dispatch."
+\$runningProcs = \$null
+for (\$i = 0; \$i -lt 20; \$i++) {
+    Start-Sleep -Milliseconds 500
+    \$runningProcs = Get-Process -Name "pos_system" -ErrorAction SilentlyContinue
+    if (\$runningProcs) { break }
 }
+if (-not \$runningProcs) {
+    Fail-Update "Restart dispatched but pos_system.exe is not running after 10 seconds."
+}
+Write-UpdateLog "Restart SUCCESS: pos_system.exe running (PID: \$((\$runningProcs | ForEach-Object { \$_.Id }) -join ', '))"
 
 # ----- Stage 7: Cleanup -----
 Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
-Write-UpdateLog "Update transaction COMPLETE. \$versionBefore -> \$versionAfter"
+Write-UpdateLog "UPDATE TRANSACTION COMPLETE. \$versionBefore -> \$versionAfter"
 Write-UpdateLog "=========================================="
 ''';
   }
@@ -902,27 +891,29 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('Update runner script generated: $updaterScriptPath');
         writeLauncherLog('Launching detached background updater process...');
 
-        await Process.start(
-          'cmd.exe',
-          [
-            '/c',
-            'start',
-            '""',
+        late final Process updaterProcess;
+        try {
+          updaterProcess = await Process.start(
             'powershell.exe',
-            '-WindowStyle',
-            'Hidden',
-            '-NoProfile',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-File',
-            updaterScriptPath,
-          ],
-          mode: ProcessStartMode.detached,
-          workingDirectory: updateDir.path,
-        );
+            [
+              '-WindowStyle',
+              'Hidden',
+              '-NoProfile',
+              '-ExecutionPolicy',
+              'Bypass',
+              '-File',
+              updaterScriptPath,
+            ],
+            mode: ProcessStartMode.detached,
+            workingDirectory: updateDir.path,
+          );
+        } catch (e) {
+          writeLauncherLog('FAILED to start detached updater: $e');
+          rethrow;
+        }
 
         writeLauncherLog(
-            'Detached updater dispatched. Exiting application for update transaction.');
+            'Detached updater dispatched (PID: ${updaterProcess.pid}). Exiting application for update transaction.');
 
         await Future<void>.delayed(const Duration(milliseconds: 500));
 

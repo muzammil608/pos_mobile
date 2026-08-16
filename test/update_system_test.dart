@@ -624,7 +624,7 @@ void main() {
       expect(
           script,
           contains(
-              'Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs'));
+              'Start-Process -FilePath \$installer -ArgumentList \$installerArgs -Verb RunAs -PassThru -Wait'));
       expect(script, contains(r'/VERYSILENT'));
       expect(script, contains(r'/SUPPRESSMSGBOXES'));
       expect(script, contains(r'/FORCECLOSEAPPLICATIONS'));
@@ -635,8 +635,10 @@ void main() {
       expect(
           script,
           contains(
-              'Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru'));
+              'Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru -ErrorAction Stop'));
+      expect(script, isNot(contains('explorer.exe')));
       expect(script, contains('Monitoring startup health...'));
+      expect(script, contains('UPDATE TRANSACTION COMPLETE'));
     });
 
     test(

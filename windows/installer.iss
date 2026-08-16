@@ -3,7 +3,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.3"
+  #define MyAppVersion "1.2.0-beta.4"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -57,7 +57,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 ; When running interactively with GUI, allow launching the app on finish.
-; When running silently with /VERYSILENT, the updater runner script handles relaunch via explorer.exe.
+; Silent updates skip this entry; update_runner.ps1 verifies the install and
+; relaunches pos_system.exe after Setup exits successfully.
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
