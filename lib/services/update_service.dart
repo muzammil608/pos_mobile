@@ -859,7 +859,7 @@ foreach (\$trackedPid in \$trackedPids) {
 Start-Sleep -Milliseconds 500
 function Test-PidStillRunning([int]\$processId) {
     \$startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    \$startInfo.FileName = Join-Path \$env:WINDIR 'System32\tasklist.exe'
+    \$startInfo.FileName = Join-Path (Join-Path \$env:WINDIR 'System32') 'tasklist.exe'
     \$startInfo.Arguments = "/FI `"PID eq \$processId`" /NH"
     \$startInfo.UseShellExecute = \$false
     \$startInfo.CreateNoWindow = \$true
@@ -873,7 +873,8 @@ function Test-PidStillRunning([int]\$processId) {
             throw "Timed out checking PID \$processId"
         }
         \$output = \$process.StandardOutput.ReadToEnd()
-        return \$output -match "\b\$processId\s+"
+        \$pattern = ([char]92 + 'b' + [regex]::Escape([string]\$processId) + [char]92 + 's+')
+        return [regex]::IsMatch(\$output, \$pattern)
     } finally {
         \$process.Dispose()
     }
