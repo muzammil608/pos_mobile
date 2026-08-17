@@ -10,7 +10,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants/app_config.dart';
 import '../widgets/update_dialog.dart';
-import 'pocketbase/pocketbase_server_manager.dart';
 
 enum UpdateStatus {
   upToDate,
@@ -605,6 +604,7 @@ class UpdateService {
     required String innoLogPath,
     required String errorLogPath,
     String? startupMarkerPath,
+    String? transactionConfigPath,
   }) {
     final installer = _psQuote(installerPath);
     final targetExe = _psQuote(targetExePath);
@@ -615,6 +615,7 @@ class UpdateService {
     final innoL = _psQuote(innoLogPath);
     final errLog = _psQuote(errorLogPath);
     final startupMk = _psQuote(startupMarkerPath ?? '');
+    final configPath = _psQuote(transactionConfigPath ?? '');
     return '''# ShopFlow POS Automated Background Updater
 \$ErrorActionPreference = 'Continue'
 \$installer = $installer
@@ -626,6 +627,24 @@ class UpdateService {
 \$innoLog = $innoL
 \$errorLog = $errLog
 \$startupMarker = $startupMk
+\$transactionConfig = $configPath
+
+if (\$transactionConfig -and (Test-Path -LiteralPath \$transactionConfig -PathType Leaf)) {
+    try {
+        \$transaction = Get-Content -LiteralPath \$transactionConfig -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        \$installer = [string]\$transaction.installerPath
+        \$targetExe = [string]\$transaction.targetExePath
+        \$expectedVersion = [string]\$transaction.expectedVersion
+        \$expectedDigest = [string]\$transaction.expectedDigest
+        \$failedMarker = [string]\$transaction.failedMarkerPath
+        \$debugLog = [string]\$transaction.debugLogPath
+        \$innoLog = [string]\$transaction.innoLogPath
+        \$errorLog = [string]\$transaction.errorLogPath
+        \$startupMarker = [string]\$transaction.startupMarkerPath
+    } catch {
+        # The embedded values remain the safe fallback if metadata is unreadable.
+    }
+}
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -811,7 +830,7 @@ Start-Sleep -Milliseconds 500
         Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
     }
 )
-Write-UpdateLog "Stage 3 final PID verification: \$((\$remaining | ForEach-Object { \"\$((\$_.Name)) PID \$((\$_.Id))\" }) -join ', ')"
+Write-UpdateLog "Stage 3 final PID verification: \$((\$remaining | ForEach-Object { "\$((\$_.Name)) PID \$((\$_.Id))" }) -join ', ')"
 if (\$remaining) {
     Fail-Update "Stage 3 final verification failed; ShopFlow processes remain: \$((\$remaining | Out-String).Trim())"
 }
@@ -906,11 +925,19 @@ Write-UpdateLog "=========================================="
 
     try {
       if (!kIsWeb && Platform.isWindows) {
-        try {
-          await PocketBaseServerManager.stop();
-        } catch (_) {}
+        final transactionId =
+            '${DateTime.now().toUtc().microsecondsSinceEpoch}_${installerFile.lengthSync()}';
+        final updateRoot = Directory(
+          p.join(Directory.systemTemp.path, 'ShopFlow_Update'),
+        );
+        final updateDir = Directory(p.join(updateRoot.path, transactionId));
+        updateDir.createSync(recursive: true);
 
-        final installerPath = p.normalize(installerFile.absolute.path);
+        final transactionInstaller = File(
+          p.join(updateDir.path, p.basename(installerFile.path)),
+        );
+        await installerFile.copy(transactionInstaller.path);
+        final installerPath = p.normalize(transactionInstaller.absolute.path);
         final appExePath = targetExePathOverride != null
             ? p.normalize(targetExePathOverride)
             : p.normalize(Platform.resolvedExecutable);
@@ -918,21 +945,7 @@ Write-UpdateLog "=========================================="
         final version =
             expectedVersion ?? _versionFromInstallerName(installerFile);
 
-        final failedMarkerPath = '${installerFile.path}.failed';
-        try {
-          final fm = File(failedMarkerPath);
-          if (fm.existsSync()) {
-            fm.deleteSync();
-          }
-        } catch (_) {}
-
-        final updateDir = Directory(
-          p.join(Directory.systemTemp.path, 'ShopFlow_Update'),
-        );
-
-        if (!updateDir.existsSync()) {
-          updateDir.createSync(recursive: true);
-        }
+        final failedMarkerPath = '${transactionInstaller.path}.failed';
 
         final debugLogPath = p.join(
           updateDir.path,
@@ -949,6 +962,10 @@ Write-UpdateLog "=========================================="
         final updaterScriptPath = p.join(
           updateDir.path,
           'update_runner.ps1',
+        );
+        final transactionConfigPath = p.join(
+          updateDir.path,
+          'update_transaction.json',
         );
         final updaterStartedMarkerPath = '$updaterScriptPath.started';
         final updaterPidPath = '$updaterStartedMarkerPath.pid';
@@ -972,6 +989,25 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('ExpectedVersion: $version');
         writeLauncherLog('ExpectedSHA256: ${expectedDigest ?? "None"}');
 
+        final transactionConfig = <String, dynamic>{
+          'installerPath': installerPath,
+          'targetExePath': appExePath,
+          'targetDir': p.dirname(appExePath),
+          'expectedVersion': version,
+          'expectedDigest': expectedDigest ?? '',
+          'failedMarkerPath': failedMarkerPath,
+          'debugLogPath': debugLogPath,
+          'innoLogPath': innoLogPath,
+          'errorLogPath': errorLogPath,
+          'startupMarkerPath': updaterStartedMarkerPath,
+        };
+        File(transactionConfigPath).writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(transactionConfig),
+          mode: FileMode.writeOnly,
+          flush: true,
+        );
+        writeLauncherLog('Transaction metadata: $transactionConfigPath');
+
         final updaterScriptContent = generateUpdaterScriptContent(
           installerPath: installerPath,
           targetExePath: appExePath,
@@ -982,6 +1018,7 @@ Write-UpdateLog "=========================================="
           innoLogPath: innoLogPath,
           errorLogPath: errorLogPath,
           startupMarkerPath: updaterStartedMarkerPath,
+          transactionConfigPath: transactionConfigPath,
         );
 
         File(updaterScriptPath).writeAsStringSync(
@@ -1023,7 +1060,7 @@ Write-UpdateLog "=========================================="
         writeLauncherLog('Updater script arguments: $updaterArguments');
         writeLauncherLog('Updater working directory: ${updateDir.path}');
         final updaterArgumentString =
-            '-NoProfile -ExecutionPolicy Bypass -File "${updaterScriptPath}"';
+            '-NoProfile -ExecutionPolicy Bypass -File "$updaterScriptPath"';
         final launcherCommand =
             '\$child = Start-Process -FilePath ${_psQuote(powershellExecutable)} -ArgumentList ${_psQuote(updaterArgumentString)} -WorkingDirectory ${_psQuote(updateDir.path)} -PassThru -WindowStyle Hidden; Set-Content -LiteralPath ${_psQuote(updaterPidPath)} -Value \$child.Id -Encoding ascii -Force';
         final launcherArguments = [
@@ -1141,7 +1178,7 @@ Write-UpdateLog "=========================================="
       // .failed markers are written next to the installer as
       // "<installer>.failed" -- scan for any such file left over.
       final failedMarkers = updateDir
-          .listSync()
+          .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.endsWith('.failed'))
           .toList();

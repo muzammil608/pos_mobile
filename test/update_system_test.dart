@@ -605,6 +605,8 @@ void main() {
             r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update.log',
         errorLogPath:
             r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\ShopFlow_Update_error.log',
+        transactionConfigPath:
+            r'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\update_transaction.json',
       );
 
       // Verifies core requirements:
@@ -621,6 +623,15 @@ void main() {
           script,
           contains(
               r"$expectedDigest = 'f1844abd1482ab70a9d7a7fb981e147e69edb92d44b23e6ef0d7c72ee4a96678'"));
+      expect(
+          script,
+          contains(
+              r"$transactionConfig = 'C:\Users\PC\AppData\Local\Temp\ShopFlow_Update\update_transaction.json'"));
+      expect(script, contains(r'ConvertFrom-Json'));
+      expect(script, contains(r'$transaction.installerPath'));
+      expect(script, contains(r'-Verb RunAs'));
+      expect(script, contains(r'-PassThru'));
+      expect(script, contains(r'-Wait'));
       expect(
           script,
           contains(
