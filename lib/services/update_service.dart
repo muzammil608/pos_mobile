@@ -758,7 +758,7 @@ if (-not \$isAdmin) {
 
 if (-not \$isScheduledWorker) {
     try {
-        \$workerArguments = "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`" -ShopFlowScheduledWorker -ShopFlowTaskName `"\$scheduledTaskName`""
+        \$workerArguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`" -ShopFlowScheduledWorker -ShopFlowTaskName `"\$scheduledTaskName`""
         \$action = New-ScheduledTaskAction -Execute \$selfPowerShell -Argument \$workerArguments -WorkingDirectory \$selfWorkingDirectory
         \$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
         Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -User 'SYSTEM' -RunLevel Highest -Force -ErrorAction Stop | Out-Null

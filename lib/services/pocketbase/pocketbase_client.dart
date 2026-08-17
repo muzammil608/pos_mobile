@@ -37,8 +37,9 @@ class PocketBaseClient {
     final savedInstallId = prefs.getString('app_last_install_id');
 
     if (savedInstallId != currentInstallId) {
-      // Fresh install or reinstall detected: clear previous auth session so user lands on Login Screen
-      await prefs.remove('pb_auth');
+      // A normal application update changes the executable/build identity.
+      // Preserve the authenticated session across updates; a missing
+      // savedInstallId already represents a first run and has no session to clear.
       await prefs.setString('app_last_install_id', currentInstallId);
     }
 
