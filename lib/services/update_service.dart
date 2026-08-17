@@ -804,7 +804,9 @@ Write-UpdateLog "Stage 3 graceful wait finished after \$maxWait seconds."
 foreach (\$trackedPid in \$trackedPids) {
     try {
         Write-UpdateLog "Stage 3 termination attempt: PID=\$trackedPid"
-        \$taskkillOutput = & taskkill.exe /PID \$trackedPid /T /F 2>&1
+        # Do not use /T: the updater is launched from the old app process tree,
+        # so killing descendants would terminate this updater as well.
+        \$taskkillOutput = & taskkill.exe /PID \$trackedPid /F 2>&1
         \$taskkillExitCode = \$LASTEXITCODE
         Write-UpdateLog "Stage 3 termination result: PID=\$trackedPid ExitCode=\$taskkillExitCode Output=\$((\$taskkillOutput -join ' ').Trim())"
         if (\$taskkillExitCode -ne 0 -and \$taskkillExitCode -ne 128) {
