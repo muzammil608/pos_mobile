@@ -797,43 +797,35 @@ Write-TrackedProcessDiagnostics 'initial'
 )
 Write-UpdateLog "Stage 3 tracked PIDs: \$((\$trackedPids -join ', '))"
 \$maxWait = 5
-\$waited = 0
-while (\$waited -lt \$maxWait) {
-    # Do not re-read Process.Path while the old GUI process is shutting down.
-    # Path inspection can block on a terminating process; PID checks are bounded.
-    \$procs = @(
-        foreach (\$trackedPid in \$trackedPids) {
-            Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
-        }
-    )
-    if (-not \$procs) { break }
-    Write-UpdateLog "  Graceful wait (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
-    Start-Sleep -Seconds 1
-    \$waited++
-}
-Write-UpdateLog "Stage 3 graceful wait finished after \$waited seconds."
+Write-UpdateLog "  Graceful wait (0/\$maxWait s): cached ShopFlow PIDs"
+Start-Sleep -Seconds \$maxWait
+Write-UpdateLog "Stage 3 graceful wait finished after \$maxWait seconds."
 
 foreach (\$trackedPid in \$trackedPids) {
-    \$process = Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
-    if (-not \$process) { continue }
     try {
-        Write-UpdateLog "Stage 3 termination attempt: Name=\$((\$process).Name), PID=\$trackedPid"
-        Stop-Process -Id \$trackedPid -Force -ErrorAction Stop
-        Write-UpdateLog "Stage 3 termination succeeded: Name=\$((\$process).Name), PID=\$trackedPid"
+        Write-UpdateLog "Stage 3 termination attempt: PID=\$trackedPid"
+        \$taskkillOutput = & taskkill.exe /PID \$trackedPid /T /F 2>&1
+        \$taskkillExitCode = \$LASTEXITCODE
+        Write-UpdateLog "Stage 3 termination result: PID=\$trackedPid ExitCode=\$taskkillExitCode Output=\$((\$taskkillOutput -join ' ').Trim())"
+        if (\$taskkillExitCode -ne 0 -and \$taskkillExitCode -ne 128) {
+            Fail-Update "Stage 3 termination failed for PID \$trackedPid. taskkill exit code \${taskkillExitCode}: \$((\$taskkillOutput -join ' ').Trim())"
+        }
     } catch {
-        Fail-Update "Stage 3 termination failed for \$((\$process).Name) PID \${trackedPid}: \$_"
+        Fail-Update "Stage 3 termination failed for PID \${trackedPid}: \$_"
     }
 }
 
 Start-Sleep -Milliseconds 500
-\$remaining = @(
-    foreach (\$trackedPid in \$trackedPids) {
-        Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
+\$remainingPids = @()
+foreach (\$trackedPid in \$trackedPids) {
+    \$tasklistOutput = & tasklist.exe /FI "PID eq \$trackedPid" /NH 2>&1
+    if ((\$tasklistOutput -join "`n") -match "\b\$trackedPid\s+") {
+        \$remainingPids += \$trackedPid
     }
-)
-Write-UpdateLog "Stage 3 final PID verification: \$((\$remaining | ForEach-Object { "\$((\$_.Name)) PID \$((\$_.Id))" }) -join ', ')"
-if (\$remaining) {
-    Fail-Update "Stage 3 final verification failed; ShopFlow processes remain: \$((\$remaining | Out-String).Trim())"
+}
+Write-UpdateLog "Stage 3 final PID verification: \$((\$remainingPids -join ', '))"
+if (\$remainingPids.Count -gt 0) {
+    Fail-Update "Stage 3 final verification failed; ShopFlow PIDs remain: \$((\$remainingPids -join ', '))"
 }
 Write-UpdateLog "Stage 3 complete: old processes confirmed exited; proceeding to Stage 4."
 
