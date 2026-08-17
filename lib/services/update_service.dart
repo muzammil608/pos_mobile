@@ -739,11 +739,8 @@ if (\$installerInfo.Length -lt 1MB) {
 if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
     Write-UpdateLog "Verifying installer SHA-256..."
     try {
-        \$fileStream = [System.IO.File]::OpenRead(\$installer)
-        \$sha256     = [System.Security.Cryptography.SHA256]::Create()
-        \$hashBytes  = \$sha256.ComputeHash(\$fileStream)
-        \$fileStream.Close()
-        \$actualDigest = [System.BitConverter]::ToString(\$hashBytes).Replace('-', '').ToLowerInvariant()
+        Write-UpdateLog "SHA-256: opening installer for hashing..."
+        \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         Write-UpdateLog "Computed SHA-256: \$actualDigest"
     } catch {
         Fail-Update "Failed to compute SHA-256: \$_"
