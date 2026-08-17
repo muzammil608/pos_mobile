@@ -648,7 +648,19 @@ if (\$transactionConfig -and (Test-Path -LiteralPath \$transactionConfig -PathTy
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
+    \$mutex = New-Object System.Threading.Mutex(\$false, 'Global\ShopFlow_Update_DebugLog')
+    \$hasLock = \$false
+    try {
+        \$hasLock = \$mutex.WaitOne(5000)
+        if (\$hasLock) {
+            "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8 -ErrorAction Stop
+        }
+    } catch {
+        # Logging must never stop the update transaction.
+    } finally {
+        if (\$hasLock) { \$mutex.ReleaseMutex() }
+        \$mutex.Dispose()
+    }
 }
 
 function Get-FileProductVersion(\$path) {
@@ -946,6 +958,10 @@ Write-UpdateLog "=========================================="
           updateDir.path,
           'ShopFlow_Update_debug.log',
         );
+        final launcherLogPath = p.join(
+          updateDir.path,
+          'ShopFlow_Dart_Launcher.log',
+        );
         final innoLogPath = p.join(
           updateDir.path,
           'ShopFlow_Update.log',
@@ -969,7 +985,7 @@ Write-UpdateLog "=========================================="
 
         void writeLauncherLog(String message) {
           try {
-            File(debugLogPath).writeAsStringSync(
+            File(launcherLogPath).writeAsStringSync(
               '[$timestamp] [DART-LAUNCHER] $message\n',
               mode: FileMode.append,
               flush: true,
