@@ -627,10 +627,6 @@ class UpdateService {
 \$errorLog = $errLog
 \$startupMarker = $startupMk
 
-if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
-    Set-Content -LiteralPath \$startupMarker -Value 'Updater script started' -Encoding utf8 -Force
-}
-
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     "[\$timestamp] [PS-UPDATER] \$msg" | Out-File -FilePath \$debugLog -Append -Encoding utf8 -ErrorAction SilentlyContinue
@@ -697,6 +693,10 @@ if (-not \$isAdmin) {
     } catch {
         Fail-Update "Could not elevate updater before terminating ShopFlow: \$_"
     }
+}
+
+if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
+    Set-Content -LiteralPath \$startupMarker -Value 'Updater script started after elevation' -Encoding utf8 -Force
 }
 
 # ----- Pre-flight checks -----
