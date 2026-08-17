@@ -746,86 +746,26 @@ if (-not \$isAdmin) {
     }
 }
 
-# The updater can inherit Flutter's Windows job object. Create a native
-# breakaway worker before the old ShopFlow process is terminated.
-\$isBreakawayWorker = \$args -contains '-ShopFlowWorker'
-if (-not \$isBreakawayWorker) {
-    try {
-        if (-not ('ShopFlowNativeProcess' -as [type])) {
-            Add-Type @'
-using System;
-using System.ComponentModel;
-using System.Runtime.InteropServices;
-using System.Text;
-
-public static class ShopFlowNativeProcess {
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct STARTUPINFO {
-        public int cb;
-        public string lpReserved;
-        public string lpDesktop;
-        public string lpTitle;
-        public int dwX;
-        public int dwY;
-        public int dwXSize;
-        public int dwYSize;
-        public int dwXCountChars;
-        public int dwYCountChars;
-        public int dwFillAttribute;
-        public int dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2;
-        public IntPtr hStdInput;
-        public IntPtr hStdOutput;
-        public IntPtr hStdError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PROCESS_INFORMATION {
-        public IntPtr hProcess;
-        public IntPtr hThread;
-        public int dwProcessId;
-        public int dwThreadId;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    private static extern bool CreateProcess(
-        string applicationName,
-        StringBuilder commandLine,
-        IntPtr processAttributes,
-        IntPtr threadAttributes,
-        bool inheritHandles,
-        uint creationFlags,
-        IntPtr environment,
-        string currentDirectory,
-        ref STARTUPINFO startupInfo,
-        out PROCESS_INFORMATION processInformation);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr handle);
-
-    public static int Start(string executable, string commandLine, string workingDirectory) {
-        var startup = new STARTUPINFO { cb = Marshal.SizeOf(typeof(STARTUPINFO)), wShowWindow = 0 };
-        var flags = 0x01000000u | 0x00000200u | 0x00000008u;
-        var command = new StringBuilder(commandLine);
-        PROCESS_INFORMATION info;
-        if (!CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, false, flags,
-            IntPtr.Zero, workingDirectory, ref startup, out info)) {
-            throw new Win32Exception(Marshal.GetLastWin32Error());
-        }
-        CloseHandle(info.hThread);
-        CloseHandle(info.hProcess);
-        return info.dwProcessId;
-    }
+# The updater can inherit Flutter's Windows job object. Move the transaction
+# into a one-time elevated scheduled task before terminating ShopFlow.
+\$isScheduledWorker = \$args -contains '-ShopFlowScheduledWorker'
+\$taskNameArgIndex = [Array]::IndexOf(\$args, '-ShopFlowTaskName')
+\$scheduledTaskName = if (\$taskNameArgIndex -ge 0 -and \$args.Count -gt (\$taskNameArgIndex + 1)) {
+    [string]\$args[\$taskNameArgIndex + 1]
+} else {
+    "ShopFlowUpdate_\$([Guid]::NewGuid().ToString('N'))"
 }
-'@
-        }
-        \$workerCommand = "`"\$selfPowerShell`" -NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`" -ShopFlowWorker"
-        \$workerPid = [ShopFlowNativeProcess]::Start(\$selfPowerShell, \$workerCommand, \$selfWorkingDirectory)
-        Write-UpdateLog "Breakaway updater worker dispatched (PID: \$workerPid)."
+
+if (-not \$isScheduledWorker) {
+    try {
+        \$workerArguments = "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`" -ShopFlowScheduledWorker -ShopFlowTaskName `"\$scheduledTaskName`""
+        \$action = New-ScheduledTaskAction -Execute \$selfPowerShell -Argument \$workerArguments -WorkingDirectory \$selfWorkingDirectory
+        \$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
+        Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -User 'SYSTEM' -RunLevel Highest -Force -ErrorAction Stop | Out-Null
+        Start-ScheduledTask -TaskName \$scheduledTaskName -ErrorAction Stop
+        Write-UpdateLog "Scheduled updater worker started: \$scheduledTaskName"
     } catch {
-        Fail-Update "Could not create breakaway updater worker: \$_"
+        Fail-Update "Could not create scheduled updater worker: \$_"
     }
 }
 
@@ -1018,6 +958,9 @@ Write-UpdateLog "Restart SUCCESS: pos_system.exe running (PID: \$((\$runningProc
 
 # ----- Stage 7: Cleanup -----
 Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."
+if (\$isScheduledWorker) {
+    Unregister-ScheduledTask -TaskName \$scheduledTaskName -Confirm:\$false -ErrorAction SilentlyContinue
+}
 Remove-Item -Path \$failedMarker -Force -ErrorAction SilentlyContinue
 Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 Write-UpdateLog "UPDATE TRANSACTION COMPLETE. \$versionBefore -> \$versionAfter"
