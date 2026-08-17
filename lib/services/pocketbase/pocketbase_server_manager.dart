@@ -12,6 +12,18 @@ class PocketBaseServerManager {
   static Process? _spawnedProcess;
   static int? _spawnedPid;
 
+  static String get _backendDirectory {
+    final programFilesX86 =
+        Platform.environment['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+    return p.join(programFilesX86, 'ShopFlow POS Backend');
+  }
+
+  static String get _programDataDirectory {
+    final programData =
+        Platform.environment['ProgramData'] ?? r'C:\ProgramData';
+    return p.join(programData, 'ShopFlow POS');
+  }
+
   /// Ensures that PocketBase is running on desktop platforms if not already active.
   static Future<bool> startIfNeeded({
     Duration timeout = const Duration(seconds: 15),
@@ -196,31 +208,33 @@ class PocketBaseServerManager {
       }
     }
 
-    // Installed application mode: Always store data in user AppData directory to guarantee
-    // consistency across administrator and standard user execution contexts.
-    final defaultTemplateDataDir = p.join(exeDir, 'pb_data');
-
+    // Installed mode keeps the runtime in Program Files (x86), but stores
+    // writable PocketBase data in ProgramData so standard users can run it.
+    final programDataDir = p.join(_programDataDirectory, 'pb_data');
     final appData = Platform.environment['APPDATA'] ??
         Platform.environment['LOCALAPPDATA'] ??
         Directory.systemTemp.path;
-    final userAppDataDir = p.join(appData, 'ShopFlow POS', 'pb_data');
+    final legacyDataDir = p.join(appData, 'ShopFlow POS', 'pb_data');
 
-    if (!Directory(userAppDataDir).existsSync()) {
+    if (!Directory(programDataDir).existsSync()) {
       try {
-        Directory(userAppDataDir).createSync(recursive: true);
-        if (Directory(defaultTemplateDataDir).existsSync()) {
+        if (Directory(legacyDataDir).existsSync()) {
           _copyDirectorySync(
-              Directory(defaultTemplateDataDir), Directory(userAppDataDir));
+              Directory(legacyDataDir), Directory(programDataDir));
           debugPrint(
-              '[PocketBaseServerManager] Initialized AppData pb_data from bundled template: $userAppDataDir');
+              '[PocketBaseServerManager] Migrated legacy PocketBase data to: $programDataDir');
+        } else {
+          Directory(programDataDir).createSync(recursive: true);
+          debugPrint(
+              '[PocketBaseServerManager] Initialized PocketBase data directory: $programDataDir');
         }
       } catch (e) {
         debugPrint(
-            '[PocketBaseServerManager] Warning initializing AppData data directory: $e');
+            '[PocketBaseServerManager] Warning initializing ProgramData directory: $e');
       }
     }
 
-    return userAppDataDir;
+    return programDataDir;
   }
 
   /// Recursively copies a directory.
@@ -318,10 +332,21 @@ class PocketBaseServerManager {
       return null;
     }
 
-    // Priority 1: Next to application binary (Release build / Installed app)
+    final isDevelopment =
+        File(p.join(Directory.current.path, 'pubspec.yaml')).existsSync();
+
+    // Development builds use the executable beside the Flutter runner.
     try {
       final appDir = File(Platform.resolvedExecutable).parent.path;
       final appMatch = checkCandidate(p.join(appDir, exeName));
+      if (isDevelopment && appMatch != null) return appMatch;
+
+      // Installed builds use the fixed backend runtime location, independent
+      // of the drive/folder selected for the ShopFlow application.
+      final backendMatch = checkCandidate(p.join(_backendDirectory, exeName));
+      if (backendMatch != null) return backendMatch;
+
+      // Compatibility fallback for older installations.
       if (appMatch != null) return appMatch;
 
       var parent = Directory(appDir);

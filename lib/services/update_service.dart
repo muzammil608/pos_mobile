@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants/app_config.dart';
+import '../core/utils/app_notice.dart';
 import '../widgets/update_dialog.dart';
 
 enum UpdateStatus {
@@ -1503,66 +1504,13 @@ class AutoUpdateManager {
           ),
         );
       } else if (result.hasError) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E293B),
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: const BorderSide(
-                color: Color(0xFFEF4444),
-                width: 1.2,
-              ),
-            ),
-            duration: const Duration(seconds: 4),
-            content: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEF4444).withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.error_outline_rounded,
-                    color: Color(0xFFEF4444),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Update Check Failed',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        result.errorMessage ??
-                            'Unable to connect to update server.',
-                        style: const TextStyle(
-                          color: Color(0xFF94A3B8),
-                          fontSize: 12,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+        AppNotice.show(
+          context,
+          'Update check failed',
+          subtitle: result.errorMessage ??
+              'Unable to connect to update server.',
+          type: AppNoticeType.error,
+          duration: const Duration(seconds: 4),
         );
       }
       return result;

@@ -2,7 +2,7 @@
 
 #define MyAppName "ShopFlow POS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0-beta.7"
+  #define MyAppVersion "1.2.0-beta.8"
 #endif
 #define MyAppPublisher "ShopFlow"
 #define MyAppExeName "pos_system.exe"
@@ -38,7 +38,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#BuildReleaseDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.ilk,CMakeFiles,cmake_install.cmake,pb_data"
+Source: "{#BuildReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.pdb,*.ilk,CMakeFiles,cmake_install.cmake,pb_data,pocketbase.exe,pb_hooks\*,pb_migrations\*"
+Source: "{#BuildReleaseDir}\pocketbase.exe"; DestDir: "{code:GetBackendDir}"; Flags: ignoreversion
+Source: "{#BuildReleaseDir}\pb_hooks\*"; DestDir: "{code:GetBackendDir}\pb_hooks"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildReleaseDir}\pb_migrations\*"; DestDir: "{code:GetBackendDir}\pb_migrations"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -47,7 +50,15 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
+[UninstallDelete]
+Type: filesandordirs; Name: "{code:GetBackendDir}"
+
 [Code]
+function GetBackendDir(Param: String): String;
+begin
+  Result := ExpandConstant('{autopf32}') + '\ShopFlow POS Backend';
+end;
+
 function InitializeSetup(): Boolean;
 var
   ResultCode: Integer;

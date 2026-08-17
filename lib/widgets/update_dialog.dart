@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../core/constants/app_config.dart';
+import '../core/utils/app_notice.dart';
 import '../core/theme/cafe_colors.dart';
 import '../core/theme/nova_theme.dart';
 import '../services/update_service.dart';
@@ -319,10 +320,18 @@ class _UpdateDialogState extends State<UpdateDialog> {
       },
       onError: (error) {
         if (!mounted) return;
+        final message = error.toString().replaceAll('Exception: ', '');
+        AppNotice.show(
+          context,
+          'Update download failed',
+          subtitle: message,
+          type: AppNoticeType.error,
+          duration: const Duration(seconds: 4),
+        );
         setState(() {
           _isDownloading = false;
           _isDownloaded = false;
-          _errorMessage = error.toString().replaceAll('Exception: ', '');
+          _errorMessage = null;
         });
       },
       cancelOnError: true,
