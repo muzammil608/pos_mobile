@@ -764,6 +764,10 @@ if (-not \$isScheduledWorker) {
         Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -User 'SYSTEM' -RunLevel Highest -Force -ErrorAction Stop | Out-Null
         Start-ScheduledTask -TaskName \$scheduledTaskName -ErrorAction Stop
         Write-UpdateLog "Scheduled updater worker started: \$scheduledTaskName"
+        if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
+            Set-Content -LiteralPath \$startupMarker -Value 'Scheduled updater worker started' -Encoding utf8 -Force
+        }
+        exit 0
     } catch {
         Fail-Update "Could not create scheduled updater worker: \$_"
     }
@@ -853,10 +857,10 @@ foreach (\$trackedPid in \$trackedPids) {
 }
 
 Start-Sleep -Milliseconds 500
-function Test-PidStillRunning([int]\$pid) {
+function Test-PidStillRunning([int]\$processId) {
     \$startInfo = New-Object System.Diagnostics.ProcessStartInfo
     \$startInfo.FileName = Join-Path \$env:WINDIR 'System32\tasklist.exe'
-    \$startInfo.Arguments = "/FI `"PID eq \$pid`" /NH"
+    \$startInfo.Arguments = "/FI `"PID eq \$processId`" /NH"
     \$startInfo.UseShellExecute = \$false
     \$startInfo.CreateNoWindow = \$true
     \$startInfo.RedirectStandardOutput = \$true
@@ -866,10 +870,10 @@ function Test-PidStillRunning([int]\$pid) {
         \$process.Start() | Out-Null
         if (-not \$process.WaitForExit(2000)) {
             try { \$process.Kill() } catch { }
-            throw "Timed out checking PID \$pid"
+            throw "Timed out checking PID \$processId"
         }
         \$output = \$process.StandardOutput.ReadToEnd()
-        return \$output -match "\b\$pid\s+"
+        return \$output -match "\b\$processId\s+"
     } finally {
         \$process.Dispose()
     }
