@@ -761,7 +761,8 @@ if (-not \$isScheduledWorker) {
         \$workerArguments = "-NoProfile -ExecutionPolicy Bypass -File `"\$PSCommandPath`" -ShopFlowScheduledWorker -ShopFlowTaskName `"\$scheduledTaskName`""
         \$action = New-ScheduledTaskAction -Execute \$selfPowerShell -Argument \$workerArguments -WorkingDirectory \$selfWorkingDirectory
         \$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
-        Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -User 'SYSTEM' -RunLevel Highest -Force -ErrorAction Stop | Out-Null
+        \$workerPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+        Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -Principal \$workerPrincipal -Force -ErrorAction Stop | Out-Null
         Start-ScheduledTask -TaskName \$scheduledTaskName -ErrorAction Stop
         Write-UpdateLog "Scheduled updater worker started: \$scheduledTaskName"
         if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
