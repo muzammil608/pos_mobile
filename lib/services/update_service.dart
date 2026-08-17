@@ -953,7 +953,7 @@ try {
     \$restartTaskName = "ShopFlowRestart_\$([Guid]::NewGuid().ToString('N'))"
     \$restartAction = New-ScheduledTaskAction -Execute \$targetExe -WorkingDirectory \$targetDir
     \$restartTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(1)
-    \$restartPrincipal = New-ScheduledTaskPrincipal -UserId \$interactiveUser -LogonType InteractiveToken -RunLevel Limited
+    \$restartPrincipal = New-ScheduledTaskPrincipal -UserId \$interactiveUser -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName \$restartTaskName -Action \$restartAction -Trigger \$restartTrigger -Principal \$restartPrincipal -Force -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName \$restartTaskName -ErrorAction Stop
     Write-UpdateLog "  Interactive restart dispatched for \$interactiveUser (task: \$restartTaskName)"
