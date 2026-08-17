@@ -942,10 +942,23 @@ Write-UpdateLog "Stage 6/7: Restarting pos_system.exe from detached updater..."
 Write-UpdateLog "  Target EXE: \$targetExe"
 \$targetDir = [System.IO.Path]::GetDirectoryName(\$targetExe)
 try {
-    \$proc = Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru -ErrorAction Stop
-    Write-UpdateLog "  Restart dispatched directly (PID: \$(\$proc.Id))"
+    # The scheduled worker runs as SYSTEM so it can terminate the installed
+    # Program Files processes. SYSTEM is not an interactive desktop user,
+    # therefore launching the app directly here creates a background-only
+    # process. Start the final app through the logged-in user's session.
+    \$interactiveUser = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName
+    if ([string]::IsNullOrWhiteSpace(\$interactiveUser)) {
+        Fail-Update "Could not determine the logged-in interactive Windows user for restart."
+    }
+    \$restartTaskName = "ShopFlowRestart_\$([Guid]::NewGuid().ToString('N'))"
+    \$restartAction = New-ScheduledTaskAction -Execute \$targetExe -WorkingDirectory \$targetDir
+    \$restartTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(1)
+    \$restartPrincipal = New-ScheduledTaskPrincipal -UserId \$interactiveUser -LogonType InteractiveToken -RunLevel Limited
+    Register-ScheduledTask -TaskName \$restartTaskName -Action \$restartAction -Trigger \$restartTrigger -Principal \$restartPrincipal -Force -ErrorAction Stop | Out-Null
+    Start-ScheduledTask -TaskName \$restartTaskName -ErrorAction Stop
+    Write-UpdateLog "  Interactive restart dispatched for \$interactiveUser (task: \$restartTaskName)"
 } catch {
-    Fail-Update "Direct restart failed: \$_"
+    Fail-Update "Interactive restart failed: \$_"
 }
 
 # Monitoring startup health...
@@ -957,9 +970,12 @@ for (\$i = 0; \$i -lt 20; \$i++) {
     if (\$runningProcs) { break }
 }
 if (-not \$runningProcs) {
-    Fail-Update "Restart dispatched but pos_system.exe is not running after 10 seconds."
+    Fail-Update "Interactive restart dispatched but pos_system.exe is not running after 10 seconds."
 }
 Write-UpdateLog "Restart SUCCESS: pos_system.exe running (PID: \$((\$runningProcs | ForEach-Object { \$_.Id }) -join ', '))"
+if (\$restartTaskName) {
+    Unregister-ScheduledTask -TaskName \$restartTaskName -Confirm:\$false -ErrorAction SilentlyContinue
+}
 
 # ----- Stage 7: Cleanup -----
 Write-UpdateLog "Stage 7/7: Cleaning up temporary files..."

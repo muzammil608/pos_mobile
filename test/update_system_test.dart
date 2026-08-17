@@ -646,7 +646,8 @@ void main() {
       expect(
           script,
           contains(
-              'Start-Process -FilePath \$targetExe -WorkingDirectory \$targetDir -PassThru -ErrorAction Stop'));
+              'New-ScheduledTaskAction -Execute \$targetExe -WorkingDirectory \$targetDir'));
+      expect(script, contains(r'Start-ScheduledTask -TaskName $restartTaskName'));
       expect(script, isNot(contains('explorer.exe')));
       expect(script, contains('Monitoring startup health...'));
       expect(script, contains('UPDATE TRANSACTION COMPLETE'));
