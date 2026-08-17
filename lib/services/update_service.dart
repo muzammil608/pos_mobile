@@ -727,7 +727,7 @@ if (-not \$isAdmin) {
         Write-UpdateLog "Elevation script path: \$PSCommandPath"
         Write-UpdateLog "Elevation arguments: \$((\$selfArguments -join ' '))"
         Write-UpdateLog "Elevation working directory: \$selfWorkingDirectory"
-        \$elevatedUpdater = Start-Process -FilePath \$selfPowerShell -ArgumentList \$selfArguments -WorkingDirectory \$selfWorkingDirectory -Verb RunAs -PassThru -ErrorAction Stop
+        \$elevatedUpdater = Start-Process -FilePath \$selfPowerShell -ArgumentList \$selfArguments -WorkingDirectory \$selfWorkingDirectory -Verb RunAs -WindowStyle Hidden -PassThru -ErrorAction Stop
         \$elevatedPid = \$elevatedUpdater.Id
         Write-UpdateLog "Elevated updater dispatched (PID: \$elevatedPid). The non-elevated updater is exiting."
         \$elevatedRunning = \$null
