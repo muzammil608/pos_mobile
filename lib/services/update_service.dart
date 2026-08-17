@@ -771,30 +771,47 @@ function Write-TrackedProcessDiagnostics(\$label) {
 Write-UpdateLog "Stage 3/7: Waiting up to 5 seconds for old ShopFlow processes to exit..."
 Write-UpdateLog "Stage 3 updater PID: \$PID, Elevated: \$isAdmin"
 Write-TrackedProcessDiagnostics 'initial'
+\$initialTracked = @(Get-TrackedProcesses)
+\$trackedPids = @(
+    \$initialTracked | ForEach-Object { [int]\$_.Id }
+)
+Write-UpdateLog "Stage 3 tracked PIDs: \$((\$trackedPids -join ', '))"
 \$maxWait = 5
 \$waited = 0
 while (\$waited -lt \$maxWait) {
-    \$procs = Get-TrackedProcesses
+    # Do not re-read Process.Path while the old GUI process is shutting down.
+    # Path inspection can block on a terminating process; PID checks are bounded.
+    \$procs = @(
+        foreach (\$trackedPid in \$trackedPids) {
+            Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
+        }
+    )
     if (-not \$procs) { break }
     Write-UpdateLog "  Graceful wait (\$waited/\$maxWait s): \$((\$procs | ForEach-Object { \$_.Name }) -join ', ')"
     Start-Sleep -Seconds 1
     \$waited++
 }
-Write-TrackedProcessDiagnostics "after graceful wait (\$waited s)"
+Write-UpdateLog "Stage 3 graceful wait finished after \$waited seconds."
 
-foreach (\$process in @(Get-TrackedProcesses)) {
+foreach (\$trackedPid in \$trackedPids) {
+    \$process = Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
+    if (-not \$process) { continue }
     try {
-        Write-UpdateLog "Stage 3 termination attempt: Name=\$((\$process).Name), PID=\$((\$process).Id), Path=\$((\$process).Path)"
-        Stop-Process -Id \$process.Id -Force -ErrorAction Stop
-        Write-UpdateLog "Stage 3 termination succeeded: Name=\$((\$process).Name), PID=\$((\$process).Id)"
+        Write-UpdateLog "Stage 3 termination attempt: Name=\$((\$process).Name), PID=\$trackedPid"
+        Stop-Process -Id \$trackedPid -Force -ErrorAction Stop
+        Write-UpdateLog "Stage 3 termination succeeded: Name=\$((\$process).Name), PID=\$trackedPid"
     } catch {
-        Fail-Update "Stage 3 termination failed for \$((\$process).Name) PID \$((\$process).Id): \$_"
+        Fail-Update "Stage 3 termination failed for \$((\$process).Name) PID \${trackedPid}: \$_"
     }
 }
 
 Start-Sleep -Milliseconds 500
-\$remaining = @(Get-TrackedProcesses)
-Write-TrackedProcessDiagnostics 'final verification'
+\$remaining = @(
+    foreach (\$trackedPid in \$trackedPids) {
+        Get-Process -Id \$trackedPid -ErrorAction SilentlyContinue
+    }
+)
+Write-UpdateLog "Stage 3 final PID verification: \$((\$remaining | ForEach-Object { \"\$((\$_.Name)) PID \$((\$_.Id))\" }) -join ', ')"
 if (\$remaining) {
     Fail-Update "Stage 3 final verification failed; ShopFlow processes remain: \$((\$remaining | Out-String).Trim())"
 }
