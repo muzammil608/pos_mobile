@@ -679,6 +679,26 @@ Write-UpdateLog "Target EXE     : \$targetExe"
 Write-UpdateLog "Expected ver   : \$expectedVersion"
 Write-UpdateLog "Expected SHA256: \$expectedDigest"
 
+# Verify the downloaded installer before UAC handoff. This keeps the hash
+# operation in the original updater process, before the Flutter application
+# exits and before the elevated child takes ownership of the transaction.
+if (-not (Test-Path \$installer -PathType Leaf)) {
+    Fail-Update "Installer file not found: \$installer"
+}
+if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
+    Write-UpdateLog "Verifying installer SHA-256 before elevation..."
+    try {
+        \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        Write-UpdateLog "Computed SHA-256: \$actualDigest"
+    } catch {
+        Fail-Update "Failed to compute SHA-256 before elevation: \$_"
+    }
+    if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) {
+        Fail-Update "SHA-256 mismatch. Expected: \$expectedDigest  Got: \$actualDigest"
+    }
+    Write-UpdateLog "SHA-256 verified OK before elevation"
+}
+
 if (-not \$isAdmin) {
     Write-UpdateLog "Updater is not elevated. Re-launching itself with UAC before process shutdown."
     try {
@@ -733,22 +753,6 @@ Write-UpdateLog "Installer size : \$(\$installerInfo.Length) bytes"
 
 if (\$installerInfo.Length -lt 1MB) {
     Fail-Update "Installer file is unexpectedly small (\$([int64]\$installerInfo.Length) bytes) -- download may be corrupt"
-}
-
-# ----- SHA-256 verification (optional) -----
-if (\$expectedDigest -and \$expectedDigest.Trim() -ne "") {
-    Write-UpdateLog "Verifying installer SHA-256..."
-    try {
-        Write-UpdateLog "SHA-256: opening installer for hashing..."
-        \$actualDigest = (Get-FileHash -LiteralPath \$installer -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
-        Write-UpdateLog "Computed SHA-256: \$actualDigest"
-    } catch {
-        Fail-Update "Failed to compute SHA-256: \$_"
-    }
-    if (\$actualDigest -ne \$expectedDigest.ToLowerInvariant()) {
-        Fail-Update "SHA-256 mismatch. Expected: \$expectedDigest  Got: \$actualDigest"
-    }
-    Write-UpdateLog "SHA-256 verified OK"
 }
 
 # ----- Stage 2: Record current installed version BEFORE update -----
