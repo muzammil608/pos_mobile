@@ -830,11 +830,37 @@ foreach (\$trackedPid in \$trackedPids) {
 }
 
 Start-Sleep -Milliseconds 500
+function Test-PidStillRunning([int]\$pid) {
+    \$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    \$startInfo.FileName = Join-Path \$env:WINDIR 'System32\tasklist.exe'
+    \$startInfo.Arguments = "/FI `"PID eq \$pid`" /NH"
+    \$startInfo.UseShellExecute = \$false
+    \$startInfo.CreateNoWindow = \$true
+    \$startInfo.RedirectStandardOutput = \$true
+    \$process = New-Object System.Diagnostics.Process
+    \$process.StartInfo = \$startInfo
+    try {
+        \$process.Start() | Out-Null
+        if (-not \$process.WaitForExit(2000)) {
+            try { \$process.Kill() } catch { }
+            throw "Timed out checking PID \$pid"
+        }
+        \$output = \$process.StandardOutput.ReadToEnd()
+        return \$output -match "\b\$pid\s+"
+    } finally {
+        \$process.Dispose()
+    }
+}
+
 \$remainingPids = @()
 foreach (\$trackedPid in \$trackedPids) {
-    \$tasklistOutput = & tasklist.exe /FI "PID eq \$trackedPid" /NH 2>&1
-    if ((\$tasklistOutput -join "`n") -match "\b\$trackedPid\s+") {
-        \$remainingPids += \$trackedPid
+    try {
+        Write-UpdateLog "Stage 3 final verification: checking PID \$trackedPid..."
+        if (Test-PidStillRunning \$trackedPid) {
+            \$remainingPids += \$trackedPid
+        }
+    } catch {
+        Fail-Update "Stage 3 final verification could not check PID \${trackedPid}: \$_"
     }
 }
 Write-UpdateLog "Stage 3 final PID verification: \$((\$remainingPids -join ', '))"
