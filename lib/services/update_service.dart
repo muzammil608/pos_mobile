@@ -1134,9 +1134,13 @@ Write-UpdateLog "=========================================="
           return false;
         }
         writeLauncherLog(
-            'MARKER CREATED: independent updater PID ${File(updaterPidPath).existsSync() ? File(updaterPidPath).readAsStringSync().trim() : "unavailable"}. Exiting application for update transaction.');
+            'MARKER CREATED: independent updater PID ${File(updaterPidPath).existsSync() ? File(updaterPidPath).readAsStringSync().trim() : "unavailable"}. Updater will terminate ShopFlow during Stage 3.');
 
-        exit(0);
+        // Do not call exit(0) here. On this Windows runtime, terminating the
+        // Flutter process immediately after the marker can also terminate the
+        // elevated updater child before Stage 3. The updater owns shutdown and
+        // will terminate pos_system.exe itself before launching the installer.
+        return true;
       }
 
       await launchUrl(
