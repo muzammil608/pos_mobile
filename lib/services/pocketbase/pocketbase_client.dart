@@ -15,7 +15,8 @@ class PocketBaseClient {
     String currentInstallId = PocketBaseConfig.buildSignature;
 
     try {
-      if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      if (!kIsWeb &&
+          (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
         final resolvedExe = File(Platform.resolvedExecutable);
         final appDir = resolvedExe.parent.path;
         final installIdFile = File(p.join(appDir, 'install_id.txt'));
@@ -26,7 +27,8 @@ class PocketBaseClient {
             currentInstallId = content;
           }
         } else if (resolvedExe.existsSync()) {
-          final lastModified = resolvedExe.lastModifiedSync().millisecondsSinceEpoch;
+          final lastModified =
+              resolvedExe.lastModifiedSync().millisecondsSinceEpoch;
           currentInstallId = '${PocketBaseConfig.buildSignature}_$lastModified';
         }
       }

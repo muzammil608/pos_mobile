@@ -19,6 +19,13 @@ class ReportService {
   late final OrderService _orders = OrderService(ownerId);
   late final RepairService _repairs = RepairService(ownerId);
   Stream<List<Order>>? _sharedOrdersStream;
+  Stream<TodayOrderSummary>? _todayOrderSummaryStream;
+  Stream<Map<String, int>>? _orderStatusStatsStream;
+  Stream<double>? _todayRevenueStream;
+  Stream<int>? _todayOrderCountStream;
+  Stream<double>? _todayRepairProfitStream;
+  Stream<Map<String, int>>? _todayOrderFlowStatsStream;
+  final Map<String, Stream<List<Map<String, dynamic>>>> _ordersByPeriodStreams = {};
 
   ReportService(this.ownerId);
 
@@ -38,7 +45,7 @@ class ReportService {
   }
 
   Stream<TodayOrderSummary> getTodayOrderSummary() {
-    return _getSharedOrdersStream().map((orders) {
+    return _todayOrderSummaryStream ??= _getSharedOrdersStream().map((orders) {
       final today = _todayLocalDay();
       double revenue = 0.0;
       int orderCount = 0;
@@ -68,7 +75,7 @@ class ReportService {
   }
 
   Stream<Map<String, int>> getOrderStatusStats() {
-    return _getSharedOrdersStream().map((orders) {
+    return _orderStatusStatsStream ??= _getSharedOrdersStream().map((orders) {
       final stats = <String, int>{'pending': 0, 'ready': 0, 'completed': 0};
       for (final order in orders) {
         stats[order.status] = (stats[order.status] ?? 0) + 1;
@@ -78,7 +85,7 @@ class ReportService {
   }
 
   Stream<double> getTodayRevenue() {
-    return _getSharedOrdersStream().map((orders) {
+    return _todayRevenueStream ??= _getSharedOrdersStream().map((orders) {
       final today = _todayLocalDay();
 
       return orders.where((order) {
@@ -88,7 +95,7 @@ class ReportService {
   }
 
   Stream<int> getTodayOrderCount() {
-    return _getSharedOrdersStream().map((orders) {
+    return _todayOrderCountStream ??= _getSharedOrdersStream().map((orders) {
       final today = _todayLocalDay();
 
       return orders.where((order) {
@@ -98,7 +105,7 @@ class ReportService {
   }
 
   Stream<double> getTodayRepairProfit() {
-    return _repairs.getRepairsStream().map((repairs) {
+    return _todayRepairProfitStream ??= _repairs.getRepairsStream().map((repairs) {
       final today = _todayLocalDay();
 
       return repairs.where((repair) {
@@ -110,7 +117,7 @@ class ReportService {
   }
 
   Stream<Map<String, int>> getTodayOrderFlowStats() {
-    return _getSharedOrdersStream().map((orders) {
+    return _todayOrderFlowStatsStream ??= _getSharedOrdersStream().map((orders) {
       final today = _todayLocalDay();
       final stats = <String, int>{
         'total': 0,
@@ -132,7 +139,7 @@ class ReportService {
   }
 
   Stream<List<Map<String, dynamic>>> getOrdersByPeriod(String period) {
-    return _getSharedOrdersStream().map((orders) {
+    return _ordersByPeriodStreams[period] ??= _getSharedOrdersStream().map((orders) {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final start = switch (period) {

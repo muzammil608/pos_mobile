@@ -796,17 +796,6 @@ class _UpdateDialogState extends State<UpdateDialog> {
                     color: NovaColors.violetDeep.withOpacity(0.8),
                   ),
                 ),
-                GestureDetector(
-                  onTap: _cancelDownload,
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: NovaColors.danger,
-                    ),
-                  ),
-                ),
               ],
             ),
           ],

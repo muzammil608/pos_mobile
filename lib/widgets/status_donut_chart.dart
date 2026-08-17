@@ -30,6 +30,7 @@ class _StatusDonutChartState extends State<StatusDonutChart>
 
   late AnimationController _animController;
   late Animation<double> _fadeAnim;
+  late ReportService _reportService;
 
   static const _items = [
     _DonutMeta(
@@ -52,6 +53,7 @@ class _StatusDonutChartState extends State<StatusDonutChart>
   @override
   void initState() {
     super.initState();
+    _reportService = ReportService(widget.ownerId);
 
     _animController = AnimationController(
       vsync: this,
@@ -62,6 +64,14 @@ class _StatusDonutChartState extends State<StatusDonutChart>
       parent: _animController,
       curve: Curves.easeOut,
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant StatusDonutChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.ownerId != widget.ownerId) {
+      _reportService = ReportService(widget.ownerId);
+    }
   }
 
   @override
@@ -145,7 +155,7 @@ class _StatusDonutChartState extends State<StatusDonutChart>
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<Map<String, int>>(
-      stream: ReportService(widget.ownerId).getOrderStatusStats(),
+      stream: _reportService.getOrderStatusStats(),
       builder: (context, snapshot) {
         final stats = snapshot.data ??
             {

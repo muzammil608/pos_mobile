@@ -1353,7 +1353,7 @@ class AutoUpdateManager {
 
   void startPolling({
     Duration interval = const Duration(minutes: 5),
-    Duration initialDelay = const Duration(seconds: 8),
+    Duration initialDelay = const Duration(seconds: 3),
     http.Client? client,
   }) {
     stopPolling();
