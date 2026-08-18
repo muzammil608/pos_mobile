@@ -1507,8 +1507,8 @@ class AutoUpdateManager {
         AppNotice.show(
           context,
           'Update check failed',
-          subtitle: result.errorMessage ??
-              'Unable to connect to update server.',
+          subtitle:
+              result.errorMessage ?? 'Unable to connect to update server.',
           type: AppNoticeType.error,
           duration: const Duration(seconds: 4),
         );
