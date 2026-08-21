@@ -5,6 +5,7 @@ import 'package:pocketbase/pocketbase.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/pocketbase_config.dart';
+import 'pocketbase_server_manager.dart';
 
 class PocketBaseClient {
   static late final PocketBase pb;
@@ -13,35 +14,42 @@ class PocketBaseClient {
     final prefs = await SharedPreferences.getInstance();
 
     String currentInstallId = PocketBaseConfig.buildSignature;
+    bool isFreshInstalledDesktopApp = false;
 
     try {
-      if (!kIsWeb &&
-          (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
-        final resolvedExe = File(Platform.resolvedExecutable);
-        final appDir = resolvedExe.parent.path;
-        final installIdFile = File(p.join(appDir, 'install_id.txt'));
+      if (!kIsWeb && Platform.isWindows) {
+        // The marker lives outside the application directory so the app can
+        // write it when installed under Program Files. The Windows
+        // uninstaller removes this backend directory, while normal updates
+        // leave it in place.
+        final stateDir = PocketBaseServerManager.installationStateDirectory;
+        final installIdFile = File(p.join(stateDir, 'install_id.txt'));
 
         if (installIdFile.existsSync()) {
           final content = installIdFile.readAsStringSync().trim();
           if (content.isNotEmpty) {
             currentInstallId = content;
           }
-        } else if (resolvedExe.existsSync()) {
-          final lastModified =
-              resolvedExe.lastModifiedSync().millisecondsSinceEpoch;
-          currentInstallId = '${PocketBaseConfig.buildSignature}_$lastModified';
+        } else {
+          isFreshInstalledDesktopApp = true;
+          currentInstallId =
+              '${PocketBaseConfig.buildSignature}_${DateTime.now().microsecondsSinceEpoch}';
+          installIdFile.parent.createSync(recursive: true);
+          installIdFile.writeAsStringSync(currentInstallId, flush: true);
         }
       }
     } catch (e) {
       debugPrint('[PocketBaseClient] Error reading install_id: $e');
     }
 
-    final savedInstallId = prefs.getString('app_last_install_id');
+    if (isFreshInstalledDesktopApp && prefs.getString('pb_auth') != null) {
+      // Preferences can survive a Windows uninstall. Do not reuse the old
+      // PocketBase token on a genuinely fresh installation.
+      await prefs.remove('pb_auth');
+      debugPrint('[PocketBaseClient] Fresh installation detected; cleared saved auth session.');
+    }
 
-    if (savedInstallId != currentInstallId) {
-      // A normal application update changes the executable/build identity.
-      // Preserve the authenticated session across updates; a missing
-      // savedInstallId already represents a first run and has no session to clear.
+    if (prefs.getString('app_last_install_id') != currentInstallId) {
       await prefs.setString('app_last_install_id', currentInstallId);
     }
 

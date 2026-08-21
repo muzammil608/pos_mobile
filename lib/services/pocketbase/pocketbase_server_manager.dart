@@ -18,6 +18,10 @@ class PocketBaseServerManager {
     return p.join(programData, 'ShopFlow POS Backend');
   }
 
+  /// Directory that is removed by the Windows uninstaller and preserved by
+  /// normal application updates. It is also writable by standard users.
+  static String get installationStateDirectory => _backendDirectory;
+
   /// Ensures that PocketBase is running on desktop platforms if not already active.
   static Future<bool> startIfNeeded({
     Duration timeout = const Duration(seconds: 15),
