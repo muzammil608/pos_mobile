@@ -9,5 +9,5 @@ class PocketBaseConfig {
       : _configuredUrl;
 
   /// Unique build signature to ensure fresh installations land on the Login Screen.
-  static const String buildSignature = '1.0.0+1';
+  static const String buildSignature = '1.2.0-beta.9+9';
 }
