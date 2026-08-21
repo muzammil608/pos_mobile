@@ -13,15 +13,9 @@ class PocketBaseServerManager {
   static int? _spawnedPid;
 
   static String get _backendDirectory {
-    final programFilesX86 =
-        Platform.environment['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
-    return p.join(programFilesX86, 'ShopFlow POS Backend');
-  }
-
-  static String get _programDataDirectory {
     final programData =
         Platform.environment['ProgramData'] ?? r'C:\ProgramData';
-    return p.join(programData, 'ShopFlow POS');
+    return p.join(programData, 'ShopFlow POS Backend');
   }
 
   /// Ensures that PocketBase is running on desktop platforms if not already active.
@@ -237,9 +231,9 @@ class PocketBaseServerManager {
       }
     }
 
-    // Installed mode keeps the runtime in Program Files (x86), but stores
-    // writable PocketBase data in ProgramData so standard users can run it.
-    final programDataDir = p.join(_programDataDirectory, 'pb_data');
+    // Installed mode keeps the complete runtime under ProgramData:
+    // pocketbase.exe, pb_hooks, pb_migrations, and pb_data.
+    final programDataDir = p.join(_backendDirectory, 'pb_data');
     final appData = Platform.environment['APPDATA'] ??
         Platform.environment['LOCALAPPDATA'] ??
         Directory.systemTemp.path;

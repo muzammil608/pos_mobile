@@ -107,25 +107,3 @@ install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
 
-# Bundle PocketBase executable and configuration directories into Windows app bundle
-set(POCKETBASE_EXE "${CMAKE_CURRENT_SOURCE_DIR}/../pocketbase.exe")
-if(EXISTS "${POCKETBASE_EXE}")
-  install(FILES "${POCKETBASE_EXE}" DESTINATION "${CMAKE_INSTALL_PREFIX}"
-    COMPONENT Runtime)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pb_hooks")
-  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../pb_hooks" DESTINATION "${CMAKE_INSTALL_PREFIX}"
-    COMPONENT Runtime)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pb_migrations")
-  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../pb_migrations" DESTINATION "${CMAKE_INSTALL_PREFIX}"
-    COMPONENT Runtime)
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../pb_data")
-  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../pb_data" DESTINATION "${CMAKE_INSTALL_PREFIX}"
-    COMPONENT Runtime)
-endif()
-
