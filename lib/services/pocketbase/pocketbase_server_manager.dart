@@ -93,6 +93,35 @@ class PocketBaseServerManager {
       debugPrint(
           '[PocketBaseServerManager] Data directory: $dataDir');
 
+      // Seed/repair the local superuser before launching PocketBase. This keeps
+      // PocketBase from opening its browser-based first-run installer.
+      try {
+        final upsertResult = await Process.run(
+          absoluteExe,
+          [
+            'superuser',
+            'upsert',
+            PocketBaseConfig.superuserEmail,
+            PocketBaseConfig.superuserPassword,
+            '--dir=$dataDir',
+          ],
+          workingDirectory: exeDir,
+        );
+        final stdout = upsertResult.stdout.toString().trim();
+        final stderr = upsertResult.stderr.toString().trim();
+        debugPrint(
+            '[PocketBaseServerManager] Superuser upsert exited with code ${upsertResult.exitCode}.');
+        if (stdout.isNotEmpty) {
+          debugPrint('[PocketBaseServerManager] Superuser upsert stdout: $stdout');
+        }
+        if (stderr.isNotEmpty) {
+          debugPrint('[PocketBaseServerManager] Superuser upsert stderr: $stderr');
+        }
+      } catch (e, stack) {
+        debugPrint(
+            '[PocketBaseServerManager] WARNING: Could not run superuser upsert; continuing with server startup: $e\n$stack');
+      }
+
       final processArgs = [
         'serve',
         '--http=$host:$port',

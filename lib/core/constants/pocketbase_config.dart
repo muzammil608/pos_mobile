@@ -8,6 +8,9 @@ class PocketBaseConfig {
       ? _configuredUrl.substring(0, _configuredUrl.length - 1)
       : _configuredUrl;
 
+  static const String superuserEmail = 'azmat@pos.com';
+  static const String superuserPassword = 'REMOVED';
+
   /// Unique build signature to ensure fresh installations land on the Login Screen.
-  static const String buildSignature = '1.2.0-beta.18+18';
+  static const String buildSignature = '1.2.0-beta.19+19';
 }

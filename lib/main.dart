@@ -37,7 +37,12 @@ void main() async {
   };
 
   // Automatically start local PocketBase process on desktop platforms if not already running
-  await PocketBaseServerManager.startIfNeeded();
+  final backendStarted = await PocketBaseServerManager.startIfNeeded();
+
+  if (!backendStarted) {
+    runApp(const MyApp(backendStartupFailed: true));
+    return;
+  }
 
   await PocketBaseClient.init();
 
@@ -136,7 +141,9 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.backendStartupFailed = false});
+
+  final bool backendStartupFailed;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -182,8 +189,42 @@ class _MyAppState extends State<MyApp> {
         navigatorKey: AutoUpdateManager.navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: const AppEntry(),
+        home: widget.backendStartupFailed
+            ? const BackendStartupFailureScreen()
+            : const AppEntry(),
         onGenerateRoute: AppRoutes.onGenerateRoute,
+      ),
+    );
+  }
+}
+
+class BackendStartupFailureScreen extends StatelessWidget {
+  const BackendStartupFailureScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 64),
+              SizedBox(height: 16),
+              Text(
+                'Local backend failed to start',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 8),
+              Text(
+                'ShopFlow POS cannot connect to its local backend. Please restart the application or contact support.',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

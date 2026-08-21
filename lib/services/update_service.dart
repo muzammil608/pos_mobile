@@ -649,7 +649,7 @@ if (\$transactionConfig -and (Test-Path -LiteralPath \$transactionConfig -PathTy
 
 function Write-UpdateLog(\$msg) {
     \$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    \$mutex = New-Object System.Threading.Mutex(\$false, 'Global\ShopFlow_Update_DebugLog')
+    \$mutex = New-Object System.Threading.Mutex(\$false, 'GlobalShopFlow_Update_DebugLog')
     \$hasLock = \$false
     try {
         \$hasLock = \$mutex.WaitOne(5000)
