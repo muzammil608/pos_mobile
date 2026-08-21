@@ -12,5 +12,5 @@ class PocketBaseConfig {
   static const String superuserPassword = 'REMOVED';
 
   /// Unique build signature to ensure fresh installations land on the Login Screen.
-  static const String buildSignature = '1.2.0-beta.20+20';
+  static const String buildSignature = '1.2.0-beta.21+21';
 }

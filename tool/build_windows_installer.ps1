@@ -18,6 +18,19 @@ Write-Host "Target App Version: $pubspecFullVersion (Base: $pubspecVersion)" -Fo
 
 # 2. Build Flutter Release for Windows (Cleaning old runner output to ensure version sync)
 Write-Host "`n[1/4] Building Flutter Windows Release..." -ForegroundColor Yellow
+
+# Remove backend directories left by older builds. Backend files are packaged
+# directly into the ProgramData backend directory and must not remain beside
+# the frontend executable.
+$frontendBuildDir = "build\windows\x64\runner"
+foreach ($staleDirName in @("pb_data", "pb_hooks", "pb_migrations")) {
+    $staleDir = Join-Path $frontendBuildDir $staleDirName
+    if (Test-Path -LiteralPath $staleDir) {
+        Remove-Item -LiteralPath $staleDir -Recurse -Force
+        Write-Host "Removed stale frontend backend directory: $staleDir" -ForegroundColor DarkGray
+    }
+}
+
 flutter build windows --release
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Flutter build failed!"
