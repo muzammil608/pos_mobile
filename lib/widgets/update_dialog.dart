@@ -924,30 +924,33 @@ class _UpdateDialogState extends State<UpdateDialog> {
           const SizedBox(width: 12),
           Expanded(
             flex: 2,
-            child: ElevatedButton.icon(
-              onPressed: null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: CafeColors.flame,
-                disabledBackgroundColor: CafeColors.flame.withOpacity(0.6),
-                disabledForegroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.forbidden,
+              child: ElevatedButton.icon(
+                onPressed: null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: CafeColors.flame,
+                  disabledBackgroundColor: CafeColors.flame.withOpacity(0.6),
+                  disabledForegroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              icon: const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                icon: const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
                 ),
-              ),
-              label: const Text(
-                'Downloading...',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+                label: const Text(
+                  'Downloading...',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
                 ),
               ),
             ),
