@@ -1356,7 +1356,7 @@ class AutoUpdateManager extends ChangeNotifier {
   }
 
   void startPolling({
-    Duration interval = const Duration(seconds: 10),
+    Duration interval = const Duration(minutes: 5),
     Duration initialDelay = const Duration(seconds: 3),
     http.Client? client,
   }) {
