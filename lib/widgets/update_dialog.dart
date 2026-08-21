@@ -932,6 +932,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
                   backgroundColor: CafeColors.flame,
                   disabledBackgroundColor: CafeColors.flame.withOpacity(0.6),
                   disabledForegroundColor: Colors.white,
+                  disabledMouseCursor: SystemMouseCursors.forbidden,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),

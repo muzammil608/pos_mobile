@@ -109,10 +109,12 @@ class _AppUpdateButtonState extends State<AppUpdateButton>
     final isNarrow = screenWidth < 520;
     final showFullText = !widget.compact && !isNarrow;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Tooltip(
+    return AnimatedBuilder(
+      animation: AutoUpdateManager.instance,
+      builder: (context, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Tooltip(
           message: 'Check for updates (Current: v${AppConfig.currentVersion})',
           child: ClickableCursor(
             child: Material(
@@ -175,6 +177,7 @@ class _AppUpdateButtonState extends State<AppUpdateButton>
               ),
             ),
           ),
+          ),
         ),
       ),
     );
@@ -192,10 +195,28 @@ class _AppUpdateButtonState extends State<AppUpdateButton>
       );
     }
 
-    return Icon(
-      Icons.system_update_alt_rounded,
-      color: widget.color ?? Colors.white,
-      size: widget.iconSize,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(
+          Icons.system_update_alt_rounded,
+          color: widget.color ?? Colors.white,
+          size: widget.iconSize,
+        ),
+        if (AutoUpdateManager.instance.availableRelease != null)
+          Positioned(
+            right: -3,
+            top: -3,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

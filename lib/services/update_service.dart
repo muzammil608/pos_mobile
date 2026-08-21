@@ -1328,7 +1328,7 @@ Write-UpdateLog "=========================================="
   static String _psQuote(String value) => "'${value.replaceAll("'", "''")}'";
 }
 
-class AutoUpdateManager {
+class AutoUpdateManager extends ChangeNotifier {
   AutoUpdateManager._();
   static final AutoUpdateManager instance = AutoUpdateManager._();
 
@@ -1343,6 +1343,8 @@ class AutoUpdateManager {
 
   String? _lastPromptedReleaseVersion;
   String? get lastPromptedReleaseVersion => _lastPromptedReleaseVersion;
+  AppRelease? _availableRelease;
+  AppRelease? get availableRelease => _availableRelease;
 
   Timer? _pollTimer;
   Timer? _initialCheckTimer;
@@ -1354,7 +1356,7 @@ class AutoUpdateManager {
   }
 
   void startPolling({
-    Duration interval = const Duration(minutes: 5),
+    Duration interval = const Duration(seconds: 10),
     Duration initialDelay = const Duration(seconds: 3),
     http.Client? client,
   }) {
@@ -1384,6 +1386,8 @@ class AutoUpdateManager {
     _isChecking = true;
     try {
       final result = await UpdateService.checkForUpdates(client: client);
+      _availableRelease = result.isUpdateAvailable ? result.release : null;
+      notifyListeners();
 
       if (result.isUpdateAvailable && result.release != null) {
         final rel = result.release!;
