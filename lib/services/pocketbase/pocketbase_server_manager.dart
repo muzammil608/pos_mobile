@@ -41,7 +41,7 @@ class PocketBaseServerManager {
     try {
       final configUri = Uri.parse(PocketBaseConfig.baseUrl);
       final host = configUri.host.isEmpty ? '127.0.0.1' : configUri.host;
-      final port = configUri.port == 0 ? 8090 : configUri.port;
+      final port = configUri.port == 0 ? 8091 : configUri.port;
 
       debugPrint(
           '[PocketBaseServerManager] Checking if PocketBase is active on http://$host:$port...');
@@ -86,10 +86,8 @@ class PocketBaseServerManager {
         }
       }
 
-      debugPrint(
-          '[PocketBaseServerManager] Found executable: $absoluteExe');
-      debugPrint(
-          '[PocketBaseServerManager] Data directory: $dataDir');
+      debugPrint('[PocketBaseServerManager] Found executable: $absoluteExe');
+      debugPrint('[PocketBaseServerManager] Data directory: $dataDir');
 
       // Seed/repair the local superuser before launching PocketBase. This keeps
       // PocketBase from opening its browser-based first-run installer.
@@ -110,10 +108,12 @@ class PocketBaseServerManager {
         debugPrint(
             '[PocketBaseServerManager] Superuser upsert exited with code ${upsertResult.exitCode}.');
         if (stdout.isNotEmpty) {
-          debugPrint('[PocketBaseServerManager] Superuser upsert stdout: $stdout');
+          debugPrint(
+              '[PocketBaseServerManager] Superuser upsert stdout: $stdout');
         }
         if (stderr.isNotEmpty) {
-          debugPrint('[PocketBaseServerManager] Superuser upsert stderr: $stderr');
+          debugPrint(
+              '[PocketBaseServerManager] Superuser upsert stderr: $stderr');
         }
       } catch (e, stack) {
         debugPrint(
@@ -403,39 +403,47 @@ class PocketBaseServerManager {
   }
 
   /// Stop server process. On Windows desktop, cleans up the process handle
-  /// and runs a system-level force kill to ensure no orphaned pocketbase processes or locks remain.
+  /// and kills only the PocketBase process this app spawned (by PID), never
+  /// by executable name — other apps (e.g. Medicare) may run their own
+  /// separate pocketbase.exe, and a name-based kill would take theirs down too.
   static Future<void> stop() async {
     final process = _spawnedProcess;
     final pid = _spawnedPid;
     _spawnedProcess = null;
     _spawnedPid = null;
 
-    if (process != null || pid != null) {
+    if (process == null && pid == null) {
       debugPrint(
-          '[PocketBaseServerManager] Stopping spawned PocketBase server (PID: $pid)...');
-      try {
-        process?.kill(ProcessSignal.sigkill);
-      } catch (e) {
-        debugPrint('[PocketBaseServerManager] Error killing process handle: $e');
-      }
-
-      if (pid != null) {
-        try {
-          Process.killPid(pid);
-        } catch (_) {}
-      }
+          '[PocketBaseServerManager] stop() called but no PocketBase process was spawned by this app instance. Skipping.');
+      return;
     }
 
-    // Windows fallback: Force-kill any lingering or orphaned pocketbase.exe processes
-    if (!kIsWeb && Platform.isWindows) {
+    debugPrint(
+        '[PocketBaseServerManager] Stopping spawned PocketBase server (PID: $pid)...');
+    try {
+      process?.kill(ProcessSignal.sigkill);
+    } catch (e) {
+      debugPrint('[PocketBaseServerManager] Error killing process handle: $e');
+    }
+
+    if (pid != null) {
       try {
-        await Process.run('taskkill', ['/F', '/IM', 'pocketbase.exe', '/T']);
-      } catch (e) {
-        debugPrint('[PocketBaseServerManager] taskkill fallback error: $e');
+        Process.killPid(pid);
+      } catch (_) {}
+
+      // Windows: target this exact PID only, with /T to also stop any child
+      // processes it spawned. Deliberately NOT killing by /IM pocketbase.exe,
+      // since that would also terminate any unrelated PocketBase instance
+      // (e.g. one started by another app) running on the same machine.
+      if (!kIsWeb && Platform.isWindows) {
+        try {
+          await Process.run('taskkill', ['/F', '/PID', '$pid', '/T']);
+        } catch (e) {
+          debugPrint('[PocketBaseServerManager] taskkill by PID error: $e');
+        }
       }
     }
 
     debugPrint('[PocketBaseServerManager] PocketBase process stopped.');
   }
 }
-
