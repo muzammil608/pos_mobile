@@ -765,7 +765,7 @@ if (-not \$isScheduledWorker) {
         \$workerPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
         \$workerSettings = New-ScheduledTaskSettingsSet `
             -Priority 4 `
-            -DisallowStartIfOnBatteries:\$false `
+            -AllowStartIfOnBatteries `
             -StartWhenAvailable `
             -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
             -MultipleInstances IgnoreNew
