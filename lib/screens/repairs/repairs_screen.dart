@@ -74,15 +74,12 @@ class _RepairsScreenState extends State<RepairsScreen> {
           );
         }
 
-        final isDesktop = AppNavigationShell.isDesktop(context);
         final email = auth.user?.email ?? '';
         final userName = auth.user?.name ??
             (email.contains('@') ? email.split('@').first : email);
 
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
-          bottomNavigationBar:
-              isDesktop ? null : const AppMobileBottomNavBar(currentIndex: 4),
           appBar: AppNavigationAppBar(
             title: 'Repair Desk',
             icon: Icons.build_circle_rounded,

@@ -822,9 +822,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       return Scaffold(
         backgroundColor: NovaColors.bgTertiary,
-        drawer: AppNavigationShell.isDesktop(context)
-            ? null
-            : AppNavigationDrawer(auth: auth, currentRoute: '/checkout'),
+        drawer: null,
         appBar: AppNavigationAppBar(
           title: 'Checkout',
           icon: Icons.shopping_bag_outlined,
@@ -846,7 +844,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   final allProducts = snapshot.data ?? [];
 
                   return CheckoutKeyboardScope(
-                    enabled: AppNavigationShell.isDesktop(context),
+                    enabled: true,
                     cashController: _cashController,
                     cashFocusNode: _cashFocus,
                     shortcutFocusNode: _checkoutShortcutFocus,

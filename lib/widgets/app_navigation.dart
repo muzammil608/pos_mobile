@@ -7,7 +7,6 @@ import '../core/theme/cafe_colors.dart';
 import '../core/theme/nova_theme.dart';
 import '../core/utils/clickable_cursor.dart';
 import '../providers/auth_provider.dart';
-import '../services/pocketbase/order_service.dart';
 import 'update_button.dart';
 
 class AppUserAvatar extends StatelessWidget {
@@ -66,49 +65,7 @@ class AppUserAvatar extends StatelessWidget {
   }
 }
 
-class AppDrawerAvatarButton extends StatelessWidget {
-  const AppDrawerAvatarButton({
-    super.key,
-    required this.photoUrl,
-    required this.userName,
-  });
 
-  final String? photoUrl;
-  final String userName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Builder(
-      builder: (builderContext) => Padding(
-        padding: const EdgeInsets.only(right: 12),
-        child: ClickableCursor(
-          child: GestureDetector(
-            onTap: () => Scaffold.of(builderContext).openDrawer(),
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white54, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: AppUserAvatar(
-                photoUrl: photoUrl,
-                userName: userName,
-                radius: 18,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class AppNavigationDrawer extends StatelessWidget {
   const AppNavigationDrawer({
@@ -709,56 +666,13 @@ class AppNavigationAppBar extends StatelessWidget
                   children: [
                     ...actions,
                     if (showUpdateButton) const AppUpdateButton(),
-                    if (!AppNavigationShell.isDesktop(context))
-                      IconButton(
-                        tooltip: 'Logout',
-                        icon: const Icon(Icons.logout_rounded,
-                            color: Colors.white70),
-                        onPressed: () async {
-                          final isMobile =
-                              MediaQuery.sizeOf(context).width < 600;
-                          bool confirm = true;
-                          if (!isMobile) {
-                            confirm = await showDialog<bool>(
-                                  context: context,
-                                  builder: (dialogCtx) => AlertDialog(
-                                    title: const Text('Logout'),
-                                    content: const Text(
-                                        'Are you sure you want to logout?'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(dialogCtx, false),
-                                        child: const Text('Cancel'),
-                                      ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(dialogCtx, true),
-                                        style: TextButton.styleFrom(
-                                            foregroundColor: Colors.red),
-                                        child: const Text('Logout'),
-                                      ),
-                                    ],
-                                  ),
-                                ) ??
-                                false;
-                          }
-                          if (confirm && context.mounted) {
-                            await Provider.of<AuthProvider>(context,
-                                    listen: false)
-                                .logout();
-                            if (context.mounted) {
-                              Navigator.of(context).pushNamedAndRemoveUntil(
-                                  '/login', (route) => false);
-                            }
-                          }
-                        },
-                      ),
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
-                      child: AppDrawerAvatarButton(
+                      child: AppUserAvatar(
                         photoUrl: photoUrl,
                         userName: userName,
+                        radius: 18,
+                        fontSize: 14,
                       ),
                     ),
                   ],
@@ -861,8 +775,6 @@ class _AppNavigationShellState extends State<AppNavigationShell> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AppNavigationShell.isDesktop(context)) return widget.child;
-
     return ValueListenableBuilder<bool>(
       valueListenable: AppNavigationShell.isExpandedNotifier,
       builder: (context, isExpanded, _) {
@@ -1157,123 +1069,3 @@ class _InitialAvatar extends StatelessWidget {
   }
 }
 
-class AppMobileBottomNavBar extends StatelessWidget {
-  static bool autoShowReadyOrders = false;
-
-  final int currentIndex;
-  final VoidCallback? onPosTap;
-
-  const AppMobileBottomNavBar({
-    super.key,
-    required this.currentIndex,
-    this.onPosTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final orderService = OrderService(auth.ownerId);
-
-    return StreamBuilder<OrderRecordSnapshot>(
-      stream: orderService.getOrders(),
-      builder: (context, snapshot) {
-        int readyCount = 0;
-        if (snapshot.hasData) {
-          readyCount = snapshot.data!.docs
-              .where((doc) => doc.data()['status'] == 'ready')
-              .length;
-        }
-
-        return BottomNavigationBar(
-          currentIndex: currentIndex,
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: const Color(0xFF534AB7),
-          unselectedItemColor: const Color(0xFF9999AE),
-          selectedLabelStyle:
-              const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-          unselectedLabelStyle: const TextStyle(fontSize: 11),
-          items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.point_of_sale_rounded),
-              label: 'POS',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard_customize_rounded),
-              label: 'Reports',
-            ),
-            BottomNavigationBarItem(
-              icon: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Icon(Icons.receipt_long_outlined),
-                  if (readyCount > 0)
-                    Positioned(
-                      top: -4,
-                      right: -4,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF10B981),
-                          shape: BoxShape.circle,
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 14,
-                          minHeight: 14,
-                        ),
-                        child: Text(
-                          '$readyCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              label: 'Orders',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.warehouse_rounded),
-              label: 'Inventory',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.build_circle_rounded),
-              label: 'Repairs',
-            ),
-          ],
-          onTap: (index) {
-            if (index == currentIndex) {
-              if (index == 0 && onPosTap != null) {
-                onPosTap!();
-              }
-              return;
-            }
-
-            switch (index) {
-              case 0:
-                Navigator.pushReplacementNamed(context, '/pos');
-                break;
-              case 1:
-                Navigator.pushReplacementNamed(context, '/admin');
-                break;
-              case 2:
-                autoShowReadyOrders = true;
-                Navigator.pushReplacementNamed(context, '/pos');
-                break;
-              case 3:
-                Navigator.pushReplacementNamed(context, '/inventory');
-                break;
-              case 4:
-                Navigator.pushReplacementNamed(context, '/repairs');
-                break;
-            }
-          },
-        );
-      },
-    );
-  }
-}

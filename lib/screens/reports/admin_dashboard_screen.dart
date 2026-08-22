@@ -57,8 +57,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
           drawer: null,
-          bottomNavigationBar:
-              !isDesktop ? const AppMobileBottomNavBar(currentIndex: 1) : null,
           appBar: AppNavigationAppBar(
             title: 'Admin Dashboard',
             icon: Icons.dashboard_customize_rounded,

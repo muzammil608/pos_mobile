@@ -492,7 +492,7 @@ class ThermalPrinterService {
   Future<img.Image?> _loadLogo() async {
     try {
       final ByteData bytes = await rootBundle.load(
-        'assets/images/orion-pos-logo-v2.png',
+        'assets/images/receipt_logo_white.png',
       );
       final decoded = img.decodeImage(bytes.buffer.asUint8List());
       if (decoded == null) return null;
@@ -553,15 +553,6 @@ class ThermalPrinterService {
 
   Set<PrinterConnectionType> _supportedScanTypes() {
     if (kIsWeb) return const {};
-
-    if (Platform.isAndroid) {
-      return const {
-        PrinterConnectionType.network,
-        PrinterConnectionType.ble,
-        PrinterConnectionType.bluetooth,
-        PrinterConnectionType.usb,
-      };
-    }
 
     if (Platform.isWindows) {
       return const {

@@ -248,12 +248,8 @@ class _PayLaterScreenState extends State<PayLaterScreen> {
 
         final userEmail = auth.user?.email ?? '';
         final userName = auth.user?.name ?? userEmail.split('@').first;
-        final isDesktop = AppNavigationShell.isDesktop(context);
-
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
-          bottomNavigationBar:
-              !isDesktop ? const AppMobileBottomNavBar(currentIndex: 3) : null,
           appBar: AppNavigationAppBar(
             title: 'Pay Later Khata',
             icon: Icons.account_balance_wallet_rounded,

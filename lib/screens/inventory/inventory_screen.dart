@@ -60,13 +60,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
         final userName = auth.user?.name ?? userEmail.split('@').first;
         final photoUrl = auth.user?.photoUrl;
 
-        final isDesktop = AppNavigationShell.isDesktop(context);
-
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
           drawer: null,
-          bottomNavigationBar:
-              !isDesktop ? const AppMobileBottomNavBar(currentIndex: 3) : null,
           appBar: AppNavigationAppBar(
             title: 'Inventory Dashboard',
             icon: Icons.warehouse_rounded,
@@ -125,12 +121,6 @@ class _StockAlertBadgeState extends State<_StockAlertBadge> {
   void _showOverlay() {
     if (_latestAlerts.isEmpty) return;
     _hideTimer?.cancel();
-
-    final isMobile = MediaQuery.sizeOf(context).width < 600;
-    if (isMobile) {
-      _showMobileBottomSheet();
-      return;
-    }
 
     if (_overlayEntry != null) {
       _overlayEntry!.markNeedsBuild();
@@ -199,147 +189,7 @@ class _StockAlertBadgeState extends State<_StockAlertBadge> {
     Overlay.of(context).insert(_overlayEntry!);
   }
 
-  void _showMobileBottomSheet() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final outCount = _latestAlerts.where((p) => p.stockQty <= 0).length;
-        final lowCount = _latestAlerts.length - outCount;
-        final urgentColor = outCount > 0 ? NovaColors.danger : NovaColors.amber;
 
-        return GestureDetector(
-          onTap: () => Navigator.pop(sheetContext),
-          behavior: HitTestBehavior.translucent,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: GestureDetector(
-              onTap: () {},
-              behavior: HitTestBehavior.opaque,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 500),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: NovaColors.bgPrimary,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  child: SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          margin: const EdgeInsets.symmetric(vertical: 10),
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: NovaColors.borderSecondary,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                          child: Row(
-                            children: [
-                              Icon(Icons.notifications_active_rounded,
-                                  color: urgentColor, size: 20),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Stock Notifications',
-                                  style: TextStyle(
-                                    color: NovaColors.textPrimary,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: urgentColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '$outCount out | $lowCount low',
-                                  style: TextStyle(
-                                    color: urgentColor,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Divider(
-                            height: 1, color: NovaColors.borderTertiary),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight:
-                                MediaQuery.of(sheetContext).size.height * 0.5,
-                          ),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 12),
-                            itemCount: _latestAlerts.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 2),
-                            itemBuilder: (context, index) {
-                              final product = _latestAlerts[index];
-                              return _StockAlertProductTile(product: product);
-                            },
-                          ),
-                        ),
-                        const Divider(
-                            height: 1, color: NovaColors.borderTertiary),
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: SizedBox(
-                            width: double.infinity,
-                            height: 46,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                Navigator.pop(sheetContext);
-                                Navigator.of(context).push(
-                                  NoAnimationPageRoute(
-                                    builder: (_) => const ProductsScreen(
-                                        inventoryMode: true),
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: NovaColors.violet,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                elevation: 0,
-                              ),
-                              icon: const Icon(Icons.inventory_2_rounded,
-                                  size: 18),
-                              label: const Text(
-                                'Manage Products',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   void _scheduleHideOverlay() {
     _hideTimer?.cancel();

@@ -702,13 +702,9 @@ class _EmployeeManagerScreenState extends State<EmployeeManagerScreen> {
         final userName = auth.user?.name ?? userEmail.split('@').first;
         final photoUrl = auth.user?.photoUrl;
 
-        final isDesktop = AppNavigationShell.isDesktop(context);
-
         return Scaffold(
           backgroundColor: NovaColors.bgTertiary,
           drawer: null,
-          bottomNavigationBar:
-              !isDesktop ? const AppMobileBottomNavBar(currentIndex: 1) : null,
           appBar: AppNavigationAppBar(
             title: 'Employee Manager',
             icon: Icons.badge_rounded,

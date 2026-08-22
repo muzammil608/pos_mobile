@@ -256,9 +256,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
     final formKey = GlobalKey<FormState>();
     final isEdit = product != null;
-    final supportsCamera = !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS);
 
     showModalBottomSheet(
       context: context,
@@ -269,41 +266,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
           builder: (sheetContext, setSheetState) {
             Future<void> pickProductImage(ImageSource source) async {
               if (isPickingImage) return;
-              if (source == ImageSource.camera) {
-                if (!supportsCamera) {
-                  _showProductSnackBar(
-                    context: sheetContext,
-                    message:
-                        'Camera is not available on this device. Use Gallery instead.',
-                    isError: false,
-                    icon: Icons.no_photography_outlined,
-                    backgroundColor: const Color(0xFFF59E0B),
-                  );
-                  return;
-                }
-                final proceed = await showDialog<bool>(
-                      context: sheetContext,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('Camera access'),
-                        content: const Text(
-                          'Allow camera access to capture a product photo.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () =>
-                                Navigator.pop(dialogContext, false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            child: const Text('Continue'),
-                          ),
-                        ],
-                      ),
-                    ) ??
-                    false;
-                if (!proceed || !sheetContext.mounted) return;
-              }
               setSheetState(() => isPickingImage = true);
               try {
                 final image = await ImagePicker().pickImage(
@@ -552,35 +514,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                                             size: 18,
                                                           ),
                                                           label: const Text(
-                                                              'Gallery'),
+                                                              'Select Image'),
                                                           style: OutlinedButton
                                                               .styleFrom(
                                                             minimumSize:
                                                                 const Size(
-                                                                    112, 44),
-                                                          ),
-                                                        ),
-                                                        OutlinedButton.icon(
-                                                          onPressed:
-                                                              isPickingImage
-                                                                  ? null
-                                                                  : () =>
-                                                                      pickProductImage(
-                                                                        ImageSource
-                                                                            .camera,
-                                                                      ),
-                                                          icon: const Icon(
-                                                            Icons
-                                                                .photo_camera_outlined,
-                                                            size: 18,
-                                                          ),
-                                                          label: const Text(
-                                                              'Camera'),
-                                                          style: OutlinedButton
-                                                              .styleFrom(
-                                                            minimumSize:
-                                                                const Size(
-                                                                    112, 44),
+                                                                    130, 44),
                                                           ),
                                                         ),
                                                         if (selectedImageBytes !=
