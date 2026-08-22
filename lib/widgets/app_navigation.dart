@@ -138,6 +138,20 @@ class AppNavigationDrawer extends StatelessWidget {
     }
   }
 
+  Future<void> _handleLogout(BuildContext context) async {
+    final scaffoldState = Scaffold.maybeOf(context);
+    if (scaffoldState?.isDrawerOpen ?? false) {
+      Navigator.pop(context);
+    }
+    await Provider.of<AuthProvider>(context, listen: false).logout();
+    if (context.mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/login',
+        (route) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = auth.user;
@@ -473,24 +487,11 @@ class AppNavigationDrawer extends StatelessWidget {
                                 ],
                               ),
                               child: ElevatedButton.icon(
-                                onPressed: () async {
-                                  Navigator.pop(context);
-                                  await Provider.of<AuthProvider>(context,
-                                          listen: false)
-                                      .logout();
-                                  if (context.mounted) {
-                                    Navigator.of(context)
-                                        .pushNamedAndRemoveUntil(
-                                      '/login',
-                                      (route) => false,
-                                    );
-                                  }
-                                },
+                                onPressed: () => _handleLogout(context),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.transparent,
                                   shadowColor: Colors.transparent,
-                                  minimumSize:
-                                      const Size(double.infinity, 46),
+                                  minimumSize: const Size(double.infinity, 46),
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14)),
                                 ),
@@ -560,13 +561,38 @@ class AppNavigationDrawer extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 10),
+                          // Logout Button (icon-only, shown when sidebar is collapsed)
                           Tooltip(
-                            message: '$userName (${auth.role.toUpperCase()})',
-                            child: AppUserAvatar(
-                              photoUrl: photoUrl,
-                              userName: userName,
-                              radius: 18,
-                              fontSize: 13,
+                            message: 'Logout',
+                            child: ClickableCursor(
+                              child: Material(
+                                color: const Color(0xFFFFF1F1),
+                                borderRadius: BorderRadius.circular(12),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => _handleLogout(context),
+                                  hoverColor:
+                                      const Color(0xFFFF6B6B).withOpacity(0.15),
+                                  child: Container(
+                                    width: 48,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFFFD4D4),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.logout_rounded,
+                                        color: Color(0xFFFF3B3B),
+                                        size: 20,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -682,8 +708,7 @@ class AppNavigationAppBar extends StatelessWidget
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ...actions,
-                    if (showUpdateButton)
-                      const AppUpdateButton(),
+                    if (showUpdateButton) const AppUpdateButton(),
                     if (!AppNavigationShell.isDesktop(context))
                       IconButton(
                         tooltip: 'Logout',

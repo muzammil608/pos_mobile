@@ -136,8 +136,6 @@ class Repair {
   double get partsSaleTotal =>
       partsUsed.fold(0.0, (sum, part) => sum + part.saleTotal);
 
-  double get expectedProfit => estimatedCost - partsPurchaseTotal;
-
   // Payment timing affects cash collection, not the repair's sale profit.
   double get profit => estimatedCost - partsPurchaseTotal;
 
