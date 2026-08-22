@@ -763,7 +763,13 @@ if (-not \$isScheduledWorker) {
         \$action = New-ScheduledTaskAction -Execute \$selfPowerShell -Argument \$workerArguments -WorkingDirectory \$selfWorkingDirectory
         \$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(2)
         \$workerPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-        Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -Principal \$workerPrincipal -Force -ErrorAction Stop | Out-Null
+        \$workerSettings = New-ScheduledTaskSettingsSet `
+            -Priority 4 `
+            -DisallowStartIfOnBatteries:\$false `
+            -StartWhenAvailable `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+            -MultipleInstances IgnoreNew
+        Register-ScheduledTask -TaskName \$scheduledTaskName -Action \$action -Trigger \$trigger -Principal \$workerPrincipal -Settings \$workerSettings -Force -ErrorAction Stop | Out-Null
         Start-ScheduledTask -TaskName \$scheduledTaskName -ErrorAction Stop
         Write-UpdateLog "Scheduled updater worker started: \$scheduledTaskName"
         if (\$startupMarker -and \$startupMarker.Trim() -ne '') {
