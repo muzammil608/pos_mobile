@@ -44,12 +44,14 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Local helper scripts with credentials
+build.ps1
+run.ps1
 
-#pb
+# PocketBase local files & artifacts
 /pocketbase/
 /pb_data/
 /pocketbase.db
 /pocketbase_0.28.4_linux_amd64.zip
 /devtools_options.yaml
 /pocketbase
-
