@@ -236,7 +236,7 @@ class PocketBaseServerManager {
     }
 
     // Installed mode keeps the complete runtime under ProgramData:
-    // pocketbase.exe, pb_hooks, pb_migrations, and pb_data.
+    // shopflow_pb.exe, pb_hooks, pb_migrations, and pb_data.
     final programDataDir = p.join(_backendDirectory, 'pb_data');
     final appData = Platform.environment['APPDATA'] ??
         Platform.environment['LOCALAPPDATA'] ??
@@ -349,7 +349,7 @@ class PocketBaseServerManager {
   /// Dynamically locates pocketbase executable file path across Debug, Release, and Installed app environments.
   static String? _findExecutable() {
     final isWin = Platform.isWindows;
-    final exeName = isWin ? 'pocketbase.exe' : 'pocketbase';
+    final exeName = isWin ? 'shopflow_pb.exe' : 'shopflow_pb';
 
     String? checkCandidate(String path) {
       final file = File(path);
@@ -405,7 +405,10 @@ class PocketBaseServerManager {
   /// Stop server process. On Windows desktop, cleans up the process handle
   /// and kills only the PocketBase process this app spawned (by PID), never
   /// by executable name — other apps (e.g. Medicare) may run their own
-  /// separate pocketbase.exe, and a name-based kill would take theirs down too.
+  /// separate PocketBase executable, and a name-based kill would take theirs
+  /// down too. The executable is also renamed to shopflow_pb.exe (see
+  /// _findExecutable) so that OTHER apps' name-based taskkill commands can't
+  /// accidentally kill this app's process either.
   static Future<void> stop() async {
     final process = _spawnedProcess;
     final pid = _spawnedPid;
