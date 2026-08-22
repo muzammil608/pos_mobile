@@ -26,5 +26,5 @@ class PocketBaseConfig {
   );
 
   /// Unique build signature to ensure fresh installations land on the Login Screen.
-  static const String buildSignature = '1.2.0-beta.26+26';
+  static const String buildSignature = '1.2.0-beta.27+27';
 }
